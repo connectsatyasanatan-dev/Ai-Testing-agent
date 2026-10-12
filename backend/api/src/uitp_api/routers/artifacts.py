@@ -46,7 +46,7 @@ async def list_run_artifacts(
     return [EvidenceArtifactSchema.model_validate(a) for a in artifacts]
 
 
-@router.get("/{artifact_id}")
+@router.get("/{artifact_id}", response_model=None)
 async def get_run_artifact(
     run_id: str,
     artifact_id: str,

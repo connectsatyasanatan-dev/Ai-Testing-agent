@@ -7,7 +7,7 @@ name = "uitp-api"
 version = "0.1.0"
 description = "FastAPI control-plane API for the Universal AI Testing Platform."
 readme = "README.md"
-requires-python = ">=3.12"
+requires-python = ">=3.11"
 dependencies = [
     # Internal packages
     "uitp-contracts>=0.1.0",
@@ -31,6 +31,7 @@ dependencies = [
     "argon2-cffi>=23.1,<25",      # Argon2id password hashing (ADR-009)
     "itsdangerous>=2.2,<3",       # signed session cookies (Fernet / HMAC)
     "starlette>=0.37,<1",         # SessionMiddleware ships with Starlette
+    "email-validator>=2.0,<3",    # EmailStr validation in auth schemas
     # Caching and distributed rate limiting
     "redis>=5.0,<6",              # async Redis client for distributed rate limiting
 ]

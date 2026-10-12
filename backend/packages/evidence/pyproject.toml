@@ -7,7 +7,7 @@ name = "uitp-evidence"
 version = "0.1.0"
 description = "Artifact storage abstraction (local filesystem for Milestone 1; S3-compatible for Milestone 2)."
 readme = "README.md"
-requires-python = ">=3.12"
+requires-python = ">=3.11"
 dependencies = [
     "uitp-contracts>=0.1.0",
 ]

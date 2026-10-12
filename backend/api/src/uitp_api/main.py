@@ -37,12 +37,20 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     Initialises the database engine on startup; disposes it on shutdown.
     This is the single place where the engine URL is resolved from config.
     """
-    settings = get_settings()
+    db_url_raw = _settings.database_url.get_secret_value()
     engine = init_engine(
-        settings.database_url.get_secret_value(),
-        echo=settings.is_development,
+        db_url_raw,
+        echo=_settings.is_development,
     )
-    logger.info("Database engine initialised | env=%s", settings.app_env)
+    # Auto-initialize SQLite tables for local development without Docker
+    if "sqlite" in db_url_raw.lower() and _settings.is_development:
+        from uitp_api.database import Base
+        import uitp_api.models  # noqa: F401
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+        logger.info("SQLite local development database tables verified/created.")
+
+    logger.info("Database engine initialised | env=%s", _settings.app_env)
     yield
     await engine.dispose()
     logger.info("Database engine disposed.")

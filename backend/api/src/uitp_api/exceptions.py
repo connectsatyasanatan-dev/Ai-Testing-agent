@@ -71,6 +71,10 @@ class ValidationFailedError(UITPException):
         self.field = field
 
 
+# Alias for compatibility
+ValidationError = ValidationFailedError
+
+
 class PlanNotApprovedError(UITPException):
     def __init__(self) -> None:
         super().__init__(

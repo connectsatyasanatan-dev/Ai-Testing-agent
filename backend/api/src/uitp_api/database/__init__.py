@@ -43,15 +43,20 @@ def init_engine(database_url: str, *, echo: bool = False) -> AsyncEngine:
     """
     global _engine, _session_factory
 
-    _engine = create_async_engine(
-        database_url,
-        echo=echo,
-        # Pool settings appropriate for a FastAPI app:
-        pool_pre_ping=True,      # drop stale connections before use
-        pool_size=10,            # max persistent connections
-        max_overflow=20,         # extra connections allowed under load
-        pool_recycle=3600,       # recycle connections older than 1 hour
-    )
+    kwargs: dict[str, Any] = {"echo": echo}
+    if "sqlite" in database_url.lower():
+        kwargs["connect_args"] = {"check_same_thread": False}
+    else:
+        kwargs.update(
+            {
+                "pool_pre_ping": True,
+                "pool_size": 10,
+                "max_overflow": 20,
+                "pool_recycle": 3600,
+            }
+        )
+
+    _engine = create_async_engine(database_url, **kwargs)
     _session_factory = async_sessionmaker(
         _engine,
         expire_on_commit=False,  # objects stay readable after commit

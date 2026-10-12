@@ -48,7 +48,10 @@ if not _db_url:
 
 # Alembic's config object accepts a sync URL; strip the async driver prefix
 # for the offline mode SQL generator.
-_sync_url = _db_url.replace("postgresql+asyncpg://", "postgresql://")
+_sync_url = (
+    _db_url.replace("postgresql+asyncpg://", "postgresql://")
+    .replace("sqlite+aiosqlite://", "sqlite://")
+)
 config.set_main_option("sqlalchemy.url", _sync_url)
 
 
