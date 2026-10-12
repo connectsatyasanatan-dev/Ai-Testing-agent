@@ -13,7 +13,7 @@ from datetime import datetime
 from typing import Any
 from urllib.parse import urlsplit
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Query, Request
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -22,6 +22,8 @@ from uitp_api.middleware.auth import get_current_user, require_project_role
 from uitp_api.models.user import User
 from uitp_api.services import environment_service
 from uitp_contracts.enums import EnvironmentStatus
+from uitp_policy import normalize_url, parse_ip
+from uitp_policy.ip import CLOUD_METADATA_NETWORKS, PROHIBITED_METADATA_HOSTNAMES
 
 logger = logging.getLogger(__name__)
 
@@ -34,10 +36,7 @@ router = APIRouter(
 # ── URL and Secret Ref Validation ─────────────────────────────────────────────
 
 def _validate_url_syntax(url_str: str) -> str:
-    """Validate URL syntax without performing any outbound network requests.
-
-    SSRF policy and DNS resolution checks are handled separately by task P1-02.
-    """
+    """Validate URL syntax and block cloud metadata targets without outbound DNS calls."""
     cleaned = url_str.strip()
     if not cleaned:
         raise ValueError("base_url cannot be empty.")
@@ -48,11 +47,42 @@ def _validate_url_syntax(url_str: str) -> str:
 
     if parsed.scheme.lower() not in ("http", "https"):
         raise ValueError("base_url must use http or https scheme.")
-    if not parsed.netloc:
+    if not parsed.netloc or not parsed.hostname:
         raise ValueError("base_url must include a valid host.")
     if parsed.username or parsed.password:
         raise ValueError("base_url must not contain embedded user credentials.")
+
+    norm_host = parsed.hostname.lower().rstrip(".")
+    if norm_host in PROHIBITED_METADATA_HOSTNAMES:
+        raise ValueError(f"Prohibited cloud metadata hostname '{norm_host}' is blocked by security policy.")
+
+    parsed_ip = parse_ip(norm_host)
+    if parsed_ip is not None:
+        for net in CLOUD_METADATA_NETWORKS:
+            if parsed_ip in net:
+                raise ValueError("Cloud metadata addresses are blocked by SSRF policy.")
+
     return cleaned
+
+
+def _validate_allowlist(allowlist: list[str] | None) -> list[str] | None:
+    if allowlist is None:
+        return None
+    validated = []
+    for item in allowlist:
+        if not isinstance(item, str) or not item.strip():
+            raise ValueError("Allowlist items must be non-empty strings.")
+        cleaned = item.strip().lower()
+        host_part = cleaned.split(":")[0]
+        if host_part in PROHIBITED_METADATA_HOSTNAMES:
+            raise ValueError(f"Allowlist cannot include prohibited metadata hostname '{host_part}'.")
+        parsed_ip = parse_ip(host_part)
+        if parsed_ip is not None:
+            for net in CLOUD_METADATA_NETWORKS:
+                if parsed_ip in net:
+                    raise ValueError("Allowlist cannot include cloud metadata IP addresses.")
+        validated.append(cleaned)
+    return validated
 
 
 def _validate_secret_references(refs: dict[str, str] | None) -> dict[str, str] | None:
@@ -80,6 +110,11 @@ class CreateEnvironmentRequest(BaseModel):
     def check_base_url(cls, v: str) -> str:
         return _validate_url_syntax(v)
 
+    @field_validator("allowlist")
+    @classmethod
+    def check_allowlist(cls, v: list[str] | None) -> list[str] | None:
+        return _validate_allowlist(v)
+
     @field_validator("secret_refs")
     @classmethod
     def check_secret_refs(cls, v: dict[str, str] | None) -> dict[str, str] | None:
@@ -100,6 +135,11 @@ class UpdateEnvironmentRequest(BaseModel):
         if v is not None:
             return _validate_url_syntax(v)
         return v
+
+    @field_validator("allowlist")
+    @classmethod
+    def check_allowlist(cls, v: list[str] | None) -> list[str] | None:
+        return _validate_allowlist(v)
 
     @field_validator("secret_refs")
     @classmethod
@@ -168,19 +208,21 @@ async def create_environment(
 @router.get("", response_model=EnvironmentListResponse)
 async def list_environments(
     project_id: str,
+    include_archived: bool = Query(default=False, description="Include archived environments if true"),
     _: None = Depends(require_project_role("owner", "maintainer", "viewer")),
     current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_async_session),
 ) -> EnvironmentListResponse:
-    """List all active environments belonging to the project.
+    """List environments belonging to the project.
 
-    Soft-deleted ('archived') environments are excluded.
+    By default, soft-deleted ('archived') environments are excluded.
     Accessible to Owner, Maintainer, and Viewer roles.
     """
     envs = await environment_service.list_environments(
         session,
         project_id=project_id,
         actor_id=current_user.id,
+        include_archived=include_archived,
     )
     items = [EnvironmentResponse.model_validate(e) for e in envs]
     return EnvironmentListResponse(items=items, total=len(items))
@@ -228,3 +270,25 @@ async def update_environment(
         ip_address=_client_ip(request),
     )
     return EnvironmentResponse.model_validate(env)
+
+
+@router.delete("/{environment_id}", status_code=204)
+async def delete_environment(
+    project_id: str,
+    environment_id: str,
+    request: Request,
+    _: None = Depends(require_project_role("owner", "maintainer")),
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_async_session),
+) -> None:
+    """Soft-delete an environment (status='archived').
+
+    Requires Owner or Maintainer role on the project.
+    """
+    await environment_service.delete_environment(
+        session,
+        project_id=project_id,
+        environment_id=environment_id,
+        actor_id=current_user.id,
+        ip_address=_client_ip(request),
+    )

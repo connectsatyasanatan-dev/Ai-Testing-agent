@@ -389,3 +389,88 @@ class TestGetAndUpdateEnvironment:
             json={"name": "Infiltrate"},
         )
         assert resp.status_code == 404
+
+
+@pytest.mark.integration
+class TestDeleteEnvironment:
+    @pytest.mark.asyncio
+    async def test_authorized_user_can_delete_environment(self, client: AsyncClient) -> None:
+        await _register_and_login(client, "deleter@envtest.com")
+        proj_resp = await client.post("/api/v1/projects", json={"name": "Delete Proj"})
+        project_id = proj_resp.json()["id"]
+
+        c_resp = await client.post(
+            f"/api/v1/projects/{project_id}/environments",
+            json={"name": "Delete Target", "base_url": "https://delete.example.com"},
+        )
+        env_id = c_resp.json()["id"]
+
+        # Delete (soft-delete)
+        del_resp = await client.delete(f"/api/v1/projects/{project_id}/environments/{env_id}")
+        assert del_resp.status_code == 204
+
+        # Verify excluded from normal list
+        list_resp = await client.get(f"/api/v1/projects/{project_id}/environments")
+        assert list_resp.status_code == 200
+        assert list_resp.json()["total"] == 0
+
+        # Verify visible when include_archived=true
+        archived_list_resp = await client.get(
+            f"/api/v1/projects/{project_id}/environments?include_archived=true"
+        )
+        assert archived_list_resp.status_code == 200
+        assert archived_list_resp.json()["total"] == 1
+        assert archived_list_resp.json()["items"][0]["status"] == "archived"
+
+        # Verify get by ID returns 404 because it is archived
+        get_resp = await client.get(f"/api/v1/projects/{project_id}/environments/{env_id}")
+        assert get_resp.status_code == 404
+
+    @pytest.mark.asyncio
+    async def test_viewer_cannot_delete_environment(
+        self, client: AsyncClient, db_session: AsyncSession
+    ) -> None:
+        await _register_and_login(client, "del_owner@envtest.com")
+        proj_resp = await client.post("/api/v1/projects", json={"name": "Del Viewer Proj"})
+        project_id = proj_resp.json()["id"]
+
+        c_resp = await client.post(
+            f"/api/v1/projects/{project_id}/environments",
+            json={"name": "Target", "base_url": "https://target.example.com"},
+        )
+        env_id = c_resp.json()["id"]
+
+        await client.post("/api/v1/auth/logout")
+        v_resp = await _register_and_login(client, "del_viewer@envtest.com")
+        viewer_id = v_resp["id"]
+
+        db_session.add(
+            ProjectMembership(
+                id=str(uuid.uuid4()),
+                project_id=project_id,
+                user_id=viewer_id,
+                role="viewer",
+            )
+        )
+        await db_session.commit()
+
+        resp = await client.delete(f"/api/v1/projects/{project_id}/environments/{env_id}")
+        assert resp.status_code == 403
+
+    @pytest.mark.asyncio
+    async def test_cross_project_delete_returns_404(self, client: AsyncClient) -> None:
+        await _register_and_login(client, "del_user_a@envtest.com")
+        p_a = await client.post("/api/v1/projects", json={"name": "Del Proj A"})
+        p_a_id = p_a.json()["id"]
+
+        c_resp = await client.post(
+            f"/api/v1/projects/{p_a_id}/environments",
+            json={"name": "Del Env A", "base_url": "https://dela.example.com"},
+        )
+        env_a_id = c_resp.json()["id"]
+
+        await client.post("/api/v1/auth/logout")
+        await _register_and_login(client, "del_user_b@envtest.com")
+
+        resp = await client.delete(f"/api/v1/projects/{p_a_id}/environments/{env_a_id}")
+        assert resp.status_code == 404

@@ -2,6 +2,8 @@
  * Dashboard — placeholder page.
  * Full implementation in P4-02 (project/environment management UI).
  */
+import { Link } from "react-router-dom";
+import { Button } from "@/components/ui/Button";
 import { Card, CardHeader, CardBody } from "@/components/ui/Card";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Spinner } from "@/components/ui/Spinner";
@@ -43,6 +45,20 @@ export default function Dashboard() {
                 title="No projects yet"
                 description="Projects are created in P4-02."
               />
+            </CardBody>
+          </Card>
+
+          <Card>
+            <CardHeader title="Environments" description="Target test endpoints & allowlists" />
+            <CardBody>
+              <p style={{ marginBottom: "1rem", color: "var(--color-text-muted)" }}>
+                Configure environment URLs, SSRF allowlists, and secret manager references.
+              </p>
+              <Link to="/environments">
+                <Button variant="primary" size="sm">
+                  Manage Environments →
+                </Button>
+              </Link>
             </CardBody>
           </Card>
 

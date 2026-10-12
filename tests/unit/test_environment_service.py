@@ -7,7 +7,11 @@ from __future__ import annotations
 
 import pytest
 
-from uitp_api.routers.environments import _validate_secret_references, _validate_url_syntax
+from uitp_api.routers.environments import (
+    _validate_allowlist,
+    _validate_secret_references,
+    _validate_url_syntax,
+)
 
 
 @pytest.mark.unit
@@ -30,6 +34,25 @@ class TestEnvironmentValidation:
     def test_rejects_embedded_user_credentials(self) -> None:
         with pytest.raises(ValueError, match="embedded user credentials"):
             _validate_url_syntax("https://admin:secret123@api.example.com")
+
+    def test_rejects_cloud_metadata_urls(self) -> None:
+        with pytest.raises(ValueError, match="(?i)cloud metadata"):
+            _validate_url_syntax("http://169.254.169.254/latest/meta-data/")
+        with pytest.raises(ValueError, match="(?i)metadata hostname"):
+            _validate_url_syntax("http://metadata.google.internal/computeMetadata/v1/")
+
+    def test_valid_allowlist(self) -> None:
+        assert _validate_allowlist(None) is None
+        assert _validate_allowlist(["api.example.com:443", "AUTH.EXAMPLE.COM"]) == [
+            "api.example.com:443",
+            "auth.example.com",
+        ]
+
+    def test_rejects_cloud_metadata_in_allowlist(self) -> None:
+        with pytest.raises(ValueError, match="cloud metadata"):
+            _validate_allowlist(["169.254.169.254:80"])
+        with pytest.raises(ValueError, match="prohibited metadata hostname"):
+            _validate_allowlist(["metadata.google.internal"])
 
     def test_valid_secret_references(self) -> None:
         refs = {"api_key": "vault://projects/p1/keys/key", "stripe": "env:STRIPE_SECRET"}

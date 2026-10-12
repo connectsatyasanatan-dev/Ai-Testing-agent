@@ -81,17 +81,21 @@ Do not claim Milestone 2 (Full MVP) is complete after only Milestone 1.
     -   API token issuance (`POST /api/v1/auth/tokens`) is deferred to
         Milestone 2 (before P4-01). Note the deferral in code comments.
 
--   [x] **P1-ENV** Implement Environment Management API.
+-   [x] **P1-ENV** Implement Environment Management as a Complete Vertical Slice.
     -   Acceptance: project-scoped environment lifecycle endpoints:
         `POST /api/v1/projects/{project_id}/environments`,
-        `GET /api/v1/projects/{project_id}/environments`,
+        `GET /api/v1/projects/{project_id}/environments` (with `include_archived` filter),
         `GET /api/v1/projects/{project_id}/environments/{environment_id}`,
-        `PATCH /api/v1/projects/{project_id}/environments/{environment_id}`.
+        `PATCH /api/v1/projects/{project_id}/environments/{environment_id}`,
+        `DELETE /api/v1/projects/{project_id}/environments/{environment_id}` (204 No Content).
+    -   SSRF policy & target validation integrated: blocks prohibited cloud metadata endpoints (169.254.169.254, metadata.google.internal) across URLs and allowlist items.
     -   Cross-project access returns 404 (masking project existence).
-    -   Insufficient project roles return 403 (viewers cannot create/update).
+    -   Insufficient project roles return 403 (viewers cannot create/update/delete).
     -   Soft-delete conventions applied (`status='archived'`) and excluded from normal lists.
     -   Safe audit logging records `environment_created`, `environment_modified`, and `secret_reference_updated` without leaking raw credentials or secret values.
-    -   URL syntax validated without outbound network requests.
+    -   Full React + TypeScript frontend management page (`/environments`, `/projects/:projectId/environments`):
+        card list, loading, empty, and error states, create/edit modals, allowlist management, masked secret reference indicators, and delete/archive confirmation.
+    -   Verified with 26 unit and integration tests, 0 ESLint errors, and clean TypeScript compilation.
 
 ---
 

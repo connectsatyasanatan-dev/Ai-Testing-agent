@@ -41,6 +41,10 @@ async function apiFetch<T>(path: string, options: FetchOptions = {}): Promise<T>
     );
   }
 
+  if (response.status === 204 || response.headers.get("content-length") === "0") {
+    return null as unknown as T;
+  }
+
   return response.json() as Promise<T>;
 }
 
@@ -73,13 +77,69 @@ export function getHealth(): Promise<HealthResponse> {
   return apiFetch<HealthResponse>("/health");
 }
 
-// ── Stubs (add as tasks complete) ────────────────────────────────────────────
-// P0-05: export function login(email: string, password: string): Promise<UserResponse>
-// P0-05: export function logout(): Promise<void>
-// P1-01: export function listProjects(): Promise<ProjectListResponse>
-// P1-01: export function createProject(data: CreateProjectRequest): Promise<ProjectResponse>
-// P1-03: export function createPlan(projectId: string, data: CreatePlanRequest): Promise<PlanResponse>
-// P1-03: export function approvePlan(planId: string, version: number): Promise<void>
-// P1-06: export function createRun(planId: string, data: CreateRunRequest): Promise<RunResponse>
-// P1-06: export function getRun(runId: string): Promise<RunResponse>
-// P1-06: export function cancelRun(runId: string): Promise<void>
+// ── Environments ─────────────────────────────────────────────────────────────
+
+import type {
+  CreateEnvironmentInput,
+  Environment,
+  EnvironmentListResponse,
+  UpdateEnvironmentInput,
+} from "@/types/environment";
+
+export function listEnvironments(
+  projectId: string,
+  includeArchived = false
+): Promise<EnvironmentListResponse> {
+  const query = includeArchived ? "?include_archived=true" : "";
+  return apiFetch<EnvironmentListResponse>(
+    `/api/v1/projects/${projectId}/environments${query}`
+  );
+}
+
+export function getEnvironment(
+  projectId: string,
+  environmentId: string
+): Promise<Environment> {
+  return apiFetch<Environment>(
+    `/api/v1/projects/${projectId}/environments/${environmentId}`
+  );
+}
+
+export function createEnvironment(
+  projectId: string,
+  data: CreateEnvironmentInput
+): Promise<Environment> {
+  return apiFetch<Environment>(
+    `/api/v1/projects/${projectId}/environments`,
+    {
+      method: "POST",
+      body: JSON.stringify(data),
+    }
+  );
+}
+
+export function updateEnvironment(
+  projectId: string,
+  environmentId: string,
+  data: UpdateEnvironmentInput
+): Promise<Environment> {
+  return apiFetch<Environment>(
+    `/api/v1/projects/${projectId}/environments/${environmentId}`,
+    {
+      method: "PATCH",
+      body: JSON.stringify(data),
+    }
+  );
+}
+
+export function deleteEnvironment(
+  projectId: string,
+  environmentId: string
+): Promise<void> {
+  return apiFetch<void>(
+    `/api/v1/projects/${projectId}/environments/${environmentId}`,
+    {
+      method: "DELETE",
+    }
+  );
+}

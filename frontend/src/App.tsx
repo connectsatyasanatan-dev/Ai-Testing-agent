@@ -11,6 +11,7 @@ import { QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Route, Routes } from "react-router-dom";
 import { queryClient } from "@/lib/query-client";
 import Dashboard from "@/pages/Dashboard";
+import Environments from "@/pages/Environments";
 import NotFound from "@/pages/NotFound";
 
 export default function App() {
@@ -18,8 +19,10 @@ export default function App() {
     <QueryClientProvider client={queryClient}>
       <BrowserRouter>
         <Routes>
-          <Route path="/"  element={<Dashboard />} />
-          <Route path="*"  element={<NotFound />} />
+          <Route path="/" element={<Dashboard />} />
+          <Route path="/environments" element={<Environments />} />
+          <Route path="/projects/:projectId/environments" element={<Environments />} />
+          <Route path="*" element={<NotFound />} />
         </Routes>
       </BrowserRouter>
     </QueryClientProvider>

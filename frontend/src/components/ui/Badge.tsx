@@ -19,6 +19,7 @@ export function Badge({ variant = "default", children, className = "" }: BadgePr
 }
 
 /** Map a run/step status string to the correct Badge variant. */
+// eslint-disable-next-line react-refresh/only-export-components
 export function statusVariant(status: string): BadgeVariant {
   const map: Record<string, BadgeVariant> = {
     passed: "passed", failed: "failed", blocked: "blocked",

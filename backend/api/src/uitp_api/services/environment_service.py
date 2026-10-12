@@ -123,13 +123,52 @@ async def list_environments(
     *,
     project_id: str,
     actor_id: str,
+    include_archived: bool = False,
 ) -> list[Environment]:
-    """List all active environments for a project accessible to actor."""
+    """List all active (or optionally all) environments for a project accessible to actor."""
     await _assert_project_access(
         session, project_id, actor_id, ("owner", "maintainer", "viewer")
     )
     repo = EnvironmentRepository(session)
-    return await repo.list_for_project(project_id, include_archived=False)
+    return await repo.list_for_project(project_id, include_archived=include_archived)
+
+
+async def delete_environment(
+    session: AsyncSession,
+    *,
+    project_id: str,
+    environment_id: str,
+    actor_id: str,
+    ip_address: str | None = None,
+) -> None:
+    """Soft-delete an environment (status='archived').
+
+    Requires Owner or Maintainer role.
+    """
+    await _assert_project_access(
+        session, project_id, actor_id, ("owner", "maintainer")
+    )
+    repo = EnvironmentRepository(session)
+    env = await repo.get_by_id_and_project(environment_id, project_id)
+    if env is None or env.status == "archived":
+        raise ResourceNotFoundError("Environment not found.")
+
+    env.status = "archived"
+    session.add(env)
+
+    await audit_service.record(
+        session,
+        event_type=AuditEventType.ENVIRONMENT_MODIFIED,
+        actor_id=actor_id,
+        project_id=project_id,
+        resource_type="environment",
+        resource_id=env.id,
+        ip_address=ip_address,
+        metadata={"action": "archived", "status": "archived"},
+    )
+
+    await session.commit()
+    logger.info("Environment archived: %s in project %s", env.id, project_id)
 
 
 async def get_environment(
