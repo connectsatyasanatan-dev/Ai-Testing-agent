@@ -15,7 +15,7 @@ import logging
 from datetime import datetime
 from typing import Any
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -25,6 +25,7 @@ from uitp_api.models.run import Run, RunEvent, StepAttempt
 from uitp_api.models.user import User
 from uitp_api.services import run_service
 from uitp_contracts.run import CreateRunRequest
+from uitp_orchestrator import QueueError, QueueUnavailableError
 
 logger = logging.getLogger(__name__)
 
@@ -88,13 +89,36 @@ async def create_and_execute_run(
     plan_id: str,
     body: CreateRunRequest,
     request: Request,
+    background: bool = Query(default=False, description="Enqueue for background execution via worker queue"),
     current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_async_session),
 ) -> RunResponse:
-    """Execute a test run synchronously against an approved plan version.
+    """Execute a test run against an approved plan version.
 
+    If background=True or body.background=True, enqueues the run to the background queue
+    and returns immediately with status='queued'. Otherwise executes synchronously in-process.
     Rejects unapproved or modified plans with 422 PLAN_NOT_APPROVED.
     """
+    is_async = background or getattr(body, "background", False) or getattr(request.app.state, "async_runs_enabled", False)
+    if is_async:
+        queue = getattr(request.app.state, "run_queue", None)
+        try:
+            run = await run_service.create_and_enqueue_run(
+                session,
+                plan_id=plan_id,
+                environment_id=body.environment_id,
+                actor_id=current_user.id,
+                plan_version=body.plan_version,
+                idempotency_key=body.idempotency_key,
+                queue=queue,
+            )
+            return RunResponse.model_validate(run)
+        except (QueueError, QueueUnavailableError) as q_err:
+            raise HTTPException(
+                status_code=503,
+                detail=f"Queue transport failure: {q_err}",
+            )
+
     transport = getattr(request.app.state, "custom_adapter_transport", None)
     run = await run_service.execute_run_sync(
         session,

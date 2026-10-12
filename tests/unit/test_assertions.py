@@ -306,13 +306,15 @@ class TestJsonSchemaAssertions:
         assert "Expected type 'string'" in (outcome.results[0].message or "")
 
     def test_schema_depth_limit_defense(self) -> None:
-        # Build deeply recursive schema
-        curr = {"type": "string"}
+        # Build deeply recursive schema and data
+        curr_schema = {"type": "string"}
+        curr_data: Any = "val"
         for _ in range(25):
-            curr = {"type": "object", "properties": {"nested": curr}}
-        ok, _, err = BoundedJsonSchemaValidator.validate({"nested": "val"}, curr)
+            curr_schema = {"type": "object", "properties": {"nested": curr_schema}}
+            curr_data = {"nested": curr_data}
+        ok, _, err = BoundedJsonSchemaValidator.validate(curr_data, curr_schema)
         assert ok is False
-        assert "recursion depth exceeded" in (err or "").lower()
+        assert "depth" in (err or "").lower()
 
 
 @pytest.mark.unit

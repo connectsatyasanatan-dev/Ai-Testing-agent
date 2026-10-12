@@ -184,7 +184,7 @@ class TestHttpApiAdapterExecution:
         assert "exceeds maximum size" in (result.error_message or "").lower()
 
     @pytest.mark.asyncio
-    async def test_invalid_json_fallback_to_text(self, mock_app, ssrf_val, exec_context: ExecutionContext) -> None:
+    async def test_invalid_json_fallback_to_text(self, adapter: HttpApiAdapter, mock_app, ssrf_val, exec_context: ExecutionContext) -> None:
         # Requesting /create with malformed json triggers 400 from mock app with JSON body
         step = TestStepSchema(
             step_id="step_raw_text",

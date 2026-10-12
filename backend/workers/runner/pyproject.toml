@@ -15,8 +15,13 @@ dependencies = [
     "uitp-adapter-http-api>=0.1.0",
     "uitp-evidence>=0.1.0",
     "uitp-policy>=0.1.0",
-    # rq and redis are added in P3-01 (Milestone 2).
+    "uitp-api>=0.1.0",
+    "redis>=5.0,<6",
+    "rq>=1.16,<2",
 ]
+
+[project.scripts]
+uitp-worker = "uitp_worker_runner.cli:main"
 
 [project.optional-dependencies]
 dev = [

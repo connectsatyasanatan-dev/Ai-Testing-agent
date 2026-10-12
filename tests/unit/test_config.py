@@ -23,12 +23,16 @@ from uitp_api.config import Settings
 def _make_settings(**overrides: object) -> Settings:
     """Helper: create Settings with minimal valid values plus overrides."""
     defaults: dict[str, object] = {
-        "UITP_APP_ENV": "test",
-        "UITP_SECRET_KEY": "a-valid-test-secret-key-with-32-chars!!",
-        "UITP_DATABASE_URL": "postgresql+asyncpg://user:pass@localhost/test",
+        "app_env": "test",
+        "secret_key": "a-valid-test-secret-key-with-32-chars!!",
+        "database_url": "postgresql+asyncpg://user:pass@localhost/test",
     }
-    defaults.update({k.upper(): v for k, v in overrides.items()})
-    return Settings(**defaults)  # type: ignore[arg-type]
+    for k, v in overrides.items():
+        key = k.lower()
+        if key.startswith("uitp_"):
+            key = key[5:]
+        defaults[key] = v
+    return Settings(_env_file=None, **defaults)  # type: ignore[arg-type]
 
 
 @pytest.mark.unit
@@ -37,18 +41,22 @@ class TestSettingsValidation:
         s = _make_settings()
         assert s.app_env.value == "test"
 
-    def test_missing_secret_key_raises(self) -> None:
+    def test_missing_secret_key_raises(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.delenv("UITP_SECRET_KEY", raising=False)
         with pytest.raises((ValidationError, Exception)):
             Settings(  # type: ignore[call-arg]
-                UITP_DATABASE_URL="postgresql+asyncpg://user:pass@localhost/test",
-                UITP_APP_ENV="test",
+                _env_file=None,
+                database_url="postgresql+asyncpg://user:pass@localhost/test",
+                app_env="test",
             )
 
-    def test_missing_database_url_raises(self) -> None:
+    def test_missing_database_url_raises(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.delenv("UITP_DATABASE_URL", raising=False)
         with pytest.raises((ValidationError, Exception)):
             Settings(  # type: ignore[call-arg]
-                UITP_SECRET_KEY="a-valid-test-secret-key-with-32-chars!!",
-                UITP_APP_ENV="test",
+                _env_file=None,
+                secret_key="a-valid-test-secret-key-with-32-chars!!",
+                app_env="test",
             )
 
     def test_placeholder_secret_key_rejected(self) -> None:

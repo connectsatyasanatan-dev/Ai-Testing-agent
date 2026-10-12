@@ -186,19 +186,19 @@ async def private_redirect_handler(request: Request) -> Response:
     )
 
 
-def create_mock_api_app() -> Starlette:
+def create_mock_api_app(recorder: MockApiRecorder | None = None) -> Starlette:
     """Create a new, isolated instance of the mock HTTP API ASGI application."""
     routes = [
         Route("/ok", ok_handler, methods=["GET"]),
         Route("/create", create_handler, methods=["POST"]),
         Route("/slow", slow_handler, methods=["GET"]),
-        Route("/fail", fail_handler, methods=["GET"]),
+        Route("/fail", fail_handler, methods=["GET", "POST"]),
         Route("/schema-mismatch", schema_mismatch_handler, methods=["GET"]),
         Route("/redirect", redirect_handler, methods=["GET"]),
         Route("/private-redirect", private_redirect_handler, methods=["GET"]),
     ]
     app = Starlette(routes=routes)
-    app.state.recorder = MockApiRecorder()
+    app.state.recorder = recorder if recorder is not None else MockApiRecorder()
     return app
 
 

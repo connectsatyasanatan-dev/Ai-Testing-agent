@@ -42,6 +42,10 @@ class UITPException(HTTPException):
             headers=headers,
         )
 
+    @property
+    def code(self) -> ErrorCode | str:
+        return self.error_code
+
 
 class AuthenticationFailedError(UITPException):
     def __init__(self, message: str = "Authentication required.") -> None:

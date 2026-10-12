@@ -65,9 +65,10 @@ async def db_session(test_engine):
 
 # ── HTTP client fixture ───────────────────────────────────────────────────────
 
-@pytest_asyncio.fixture(scope="function")
-async def client(test_engine):
-    """AsyncClient targeting the FastAPI app, with the DB overridden."""
+@pytest.fixture(scope="function")
+def app(test_engine):
+    """FastAPI app instance with the test database overridden."""
+    application = create_app()
     factory = async_sessionmaker(test_engine, expire_on_commit=False, class_=AsyncSession)
 
     async def override_get_session():  # type: ignore[return]
@@ -80,11 +81,14 @@ async def client(test_engine):
             finally:
                 await session.close()
 
-    app = create_app()
-    app.dependency_overrides[get_async_session] = override_get_session
+    application.dependency_overrides[get_async_session] = override_get_session
+    yield application
+    application.dependency_overrides.clear()
 
+
+@pytest_asyncio.fixture(scope="function")
+async def client(app):
+    """AsyncClient targeting the FastAPI app, with the DB overridden."""
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
         yield ac
-
-    app.dependency_overrides.clear()

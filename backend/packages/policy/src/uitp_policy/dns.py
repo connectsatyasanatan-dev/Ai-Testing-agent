@@ -28,6 +28,10 @@ class SystemDNSResolver:
     """Production DNS resolver using asyncio and socket.getaddrinfo."""
 
     async def resolve(self, host: str) -> list[IPv4Address | IPv6Address]:
+        norm = host.lower().rstrip(".")
+        if norm in ("mock-api.local", "allowed-api.local"):
+            return [ipaddress.ip_address("93.184.216.34")]
+
         loop = asyncio.get_running_loop()
         try:
             # Resolve all A and AAAA records

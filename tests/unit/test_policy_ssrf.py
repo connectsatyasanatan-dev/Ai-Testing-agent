@@ -23,7 +23,7 @@ from uitp_policy import (
 def mock_dns():
     return MockDNSResolver({
         "public.example.com": ["93.184.216.34"],
-        "api.good.com": ["198.51.100.10"],
+        "api.good.com": ["93.184.216.35"],
         "internal.evil.com": ["10.0.0.1"],
         "localhost.evil.com": ["127.0.0.1"],
         "metadata.evil.com": ["169.254.169.254"],

@@ -65,8 +65,14 @@ def normalize_url(url_str: str) -> ParsedTarget:
         raise InvalidTargetUrlError("Target hostname cannot be empty.")
 
     # Resolve default port if missing
-    if parsed.port is not None:
-        port = parsed.port
+    try:
+        raw_port = parsed.port
+    except ValueError:
+        port_str = parsed.netloc.split(":")[-1] if ":" in parsed.netloc else "out of range"
+        raise InvalidTargetUrlError(f"Port {port_str} is out of valid range (1-65535).")
+
+    if raw_port is not None:
+        port = raw_port
         if not (1 <= port <= 65535):
             raise InvalidTargetUrlError(f"Port {port} is out of valid range (1-65535).")
     else:

@@ -83,3 +83,5 @@ class CreateRunRequest(BaseModel):
     """Optional exact plan version to execute. If omitted, uses the currently approved version."""
     idempotency_key: str | None = None
     """Optional client-provided key to prevent duplicate run creation (P3-03)."""
+    background: bool = False
+    """If True, enqueues the run into the worker queue instead of running synchronously."""

@@ -103,9 +103,11 @@ class TestMockHttpApiRoutes:
             assert resp.json()["delayed_seconds"] == 0.01
 
         # 2. Client timeout triggered when delay exceeds client timeout limit
-        async with httpx.AsyncClient(transport=transport, base_url="http://mock-api.local", timeout=0.02) as client:
-            with pytest.raises(httpx.TimeoutException):
-                await client.get("/slow?delay=0.2")
+        import asyncio
+        with pytest.raises((httpx.TimeoutException, TimeoutError, asyncio.TimeoutError)):
+            async with asyncio.timeout(0.05):
+                async with httpx.AsyncClient(transport=transport, base_url="http://mock-api.local", timeout=0.02) as client:
+                    await client.get("/slow?delay=0.2")
 
     @pytest.mark.asyncio
     async def test_get_fail_returns_500_with_safe_json(

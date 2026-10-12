@@ -1,14 +1,16 @@
 # =============================================================================
 # universal-ai-testing-platform — Docker Compose
 #
-# PURPOSE: Provides local infrastructure dependencies.
-# - Milestone 1: PostgreSQL only (queue not needed).
-# - Milestone 2: PostgreSQL + Redis.
+# PURPOSE: Local infrastructure dependencies and runnable services.
+# - postgres: Primary application relational database.
+# - redis: Redis instance for RQ job queues and distributed rate limiting.
+# - api: Control plane FastAPI server.
+# - worker: Background RQ worker process for test executions.
 #
 # USAGE:
-#   Start Milestone 1 deps:  docker compose up postgres -d
-#   Start all deps:          docker compose up -d
-#   Stop and remove volumes: docker compose down -v
+#   Start infrastructure only:  docker compose up postgres redis -d
+#   Start all services:         docker compose up -d
+#   Stop and remove volumes:    docker compose down -v
 #
 # Credentials here are for LOCAL DEVELOPMENT ONLY.
 # Never use these values in staging or production.
@@ -32,7 +34,6 @@ services:
       timeout: 5s
       retries: 10
 
-  # Milestone 2 only — not required for Milestone 1.
   redis:
     image: redis:7-alpine
     restart: unless-stopped
@@ -46,6 +47,47 @@ services:
       timeout: 5s
       retries: 10
 
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      UITP_APP_ENV: development
+      UITP_SECRET_KEY: ${UITP_SECRET_KEY:-local-dev-secret-key-at-least-32-chars-long}
+      UITP_DATABASE_URL: postgresql+asyncpg://postgres:postgres@postgres:5432/uitp_dev
+      UITP_REDIS_URL: redis://redis:6379/0
+      UITP_ARTIFACT_STORAGE_PATH: /app/artifacts
+      UITP_BASE_URL: http://localhost:8000
+    ports:
+      - "8000:8000"
+    volumes:
+      - artifact-data:/app/artifacts
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: ["python", "-m", "uitp_worker_runner.cli", "--redis-url", "redis://redis:6379/0"]
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql+asyncpg://postgres:postgres@postgres:5432/uitp_dev
+      UITP_REDIS_URL: redis://redis:6379/0
+      UITP_ARTIFACT_STORAGE_PATH: /app/artifacts
+    volumes:
+      - artifact-data:/app/artifacts
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
 volumes:
   postgres-data:
   redis-data:
+  artifact-data:

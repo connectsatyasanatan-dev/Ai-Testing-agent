@@ -36,6 +36,9 @@ from uitp_policy.validator import (
     SSRFValidator,
 )
 
+# Backwards compatibility alias
+SsrfPolicyValidator = SSRFValidator
+
 __all__ = [
     "PolicyError",
     "PolicyBlockedError",
@@ -53,5 +56,6 @@ __all__ = [
     "MockDNSResolver",
     "validate_dns_records",
     "SSRFValidator",
+    "SsrfPolicyValidator",
     "RedirectValidator",
 ]

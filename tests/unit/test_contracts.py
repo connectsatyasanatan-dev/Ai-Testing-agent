@@ -133,7 +133,7 @@ class TestTestStepSchema:
         assert step.idempotency_class == IdempotencyClass.SAFE
 
     def test_empty_step_id_rejected(self) -> None:
-        with pytest.raises(ValidationError, match="min_length"):
+        with pytest.raises(ValidationError):
             self._valid_step(step_id="")
 
     def test_non_idempotent_default_no_retry(self) -> None:

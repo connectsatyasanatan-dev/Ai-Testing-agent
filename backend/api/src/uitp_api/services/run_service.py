@@ -44,9 +44,11 @@ from uitp_contracts.enums import (
     ErrorCode,
     IdempotencyClass,
     RiskLevel,
+    RunStatus,
     StepStatus,
 )
 from uitp_contracts.plan import AssertionSchema, RetryPolicySchema, TestStepSchema
+from uitp_orchestrator import QueueError, QueueUnavailableError, RunQueue
 
 logger = logging.getLogger(__name__)
 
@@ -415,6 +417,136 @@ async def execute_run_sync(
     refreshed_run = await run_repo.get_by_id(run.id)
     assert refreshed_run is not None
     return refreshed_run
+
+
+async def create_and_enqueue_run(
+    session: AsyncSession,
+    *,
+    plan_id: str,
+    environment_id: str,
+    actor_id: str,
+    plan_version: int | None = None,
+    idempotency_key: str | None = None,
+    queue: RunQueue | None = None,
+) -> Run:
+    """Create a durable Run in 'queued' status and enqueue for worker execution.
+
+    Resilient to partial failure: if Redis or RQ enqueue fails, the Run record
+    is transitioned to 'failed' and an event is persisted, ensuring no run
+    is left indefinitely stuck in 'queued'.
+    """
+    plan_repo = PlanRepository(session)
+    run_repo = RunRepository(session)
+    env_repo = EnvironmentRepository(session)
+
+    # 1. Idempotency check
+    if idempotency_key:
+        existing_run = await run_repo.get_by_idempotency_key(idempotency_key)
+        if existing_run is not None:
+            logger.info("Returning existing run %s for idempotency key %s", existing_run.id, idempotency_key)
+            return existing_run
+
+    # 2. Exact-version approval gate
+    if plan_version is not None:
+        plan = await plan_repo.get_specific_version(plan_id, plan_version)
+        if plan is None:
+            raise ResourceNotFoundError("Plan version not found.")
+    else:
+        versions = await plan_repo.list_versions(plan_id)
+        if not versions:
+            raise ResourceNotFoundError("Plan not found.")
+        approved_versions = [v for v in versions if v.status == "approved"]
+        if not approved_versions:
+            raise PlanNotApprovedError()
+        plan = approved_versions[0]
+
+    await _assert_project_access(session, plan.project_id, actor_id, ("owner", "maintainer"))
+
+    if plan.status != "approved" or not plan.approved_at or not plan.approved_by:
+        logger.warning(
+            "Rejecting enqueue: plan %s v%d status is '%s' (not approved)",
+            plan.plan_id,
+            plan.version,
+            plan.status,
+        )
+        raise PlanNotApprovedError()
+
+    # 3. Target Environment verification
+    env = await env_repo.get_by_id(environment_id)
+    if env is None or env.project_id != plan.project_id or env.status == "archived":
+        raise ResourceNotFoundError("Environment not found.")
+
+    # 4. Create durable Run record in state 'queued'
+    run_id = str(uuid.uuid4())
+    now = datetime.now(UTC)
+    run = Run(
+        id=run_id,
+        plan_id=plan.plan_id,
+        plan_version=plan.version,
+        environment_id=env.id,
+        project_id=plan.project_id,
+        status=RunStatus.QUEUED.value,
+        requested_by=actor_id,
+        idempotency_key=idempotency_key,
+        created_at=now,
+    )
+    session.add(run)
+
+    queued_event = RunEvent(
+        id=str(uuid.uuid4()),
+        run_id=run.id,
+        event_type="run_queued",
+        timestamp=now,
+        message=f"Run queued for background execution: plan '{plan.name}' v{plan.version}",
+        event_metadata={"plan_id": plan.plan_id, "version": plan.version, "environment_id": env.id},
+    )
+    session.add(queued_event)
+    await session.commit()
+
+    # 5. Enqueue operation with partial failure resilience
+    if queue is None:
+        queue = RunQueue(is_mock=True)
+
+    try:
+        queue.enqueue_run(run_id=run.id)
+    except (QueueError, QueueUnavailableError, Exception) as queue_exc:
+        logger.error(
+            "Enqueue failed for run %s: %s. Transitioning run to failed to prevent hanging in queued state.",
+            run.id,
+            queue_exc,
+        )
+        fail_now = datetime.now(UTC)
+        run.status = RunStatus.FAILED.value
+        run.finished_at = fail_now
+        session.add(
+            RunEvent(
+                id=str(uuid.uuid4()),
+                run_id=run.id,
+                event_type="run_failed",
+                timestamp=fail_now,
+                message=f"Queue transport failure: {queue_exc}",
+                event_metadata={"error": str(queue_exc)},
+            )
+        )
+        await session.commit()
+        raise QueueError(f"Failed to enqueue run: {queue_exc}") from queue_exc
+
+    # 6. Record audit event
+    await audit_service.record(
+        session,
+        event_type=AuditEventType.RUN_CREATED,
+        actor_id=actor_id,
+        project_id=plan.project_id,
+        resource_type="run",
+        resource_id=run.id,
+        metadata={"plan_id": plan.plan_id, "version": plan.version, "status": "queued"},
+    )
+    await session.commit()
+
+    refreshed = await run_repo.get_by_id(run.id)
+    assert refreshed is not None
+    return refreshed
+
 
 
 async def get_run_by_id(

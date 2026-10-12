@@ -79,3 +79,16 @@ class SSRFValidator:
         validate_dns_records(resolved_ips)
 
         return target, resolved_ips
+
+    async def is_valid_url(
+        self,
+        url: str,
+        allowlist: Sequence[str] | None = None,
+    ) -> tuple[bool, str | None]:
+        """Convenience helper returning (is_valid, reason_str) instead of raising."""
+        try:
+            await self.validate_url(url, allowlist=allowlist)
+            return True, None
+        except Exception as exc:
+            return False, str(exc)
+

@@ -1,8 +1,14 @@
-# uitp-worker-runner
-#
-# Milestone 1: steps are executed synchronously inside the API process.
-# This package exists so the import path is stable when async workers
-# are introduced in P3-01.
-#
-# Do NOT add rq or redis as dependencies until P3-01.
-# Mark any synchronous shortcut with: # MILESTONE-1-SYNC-MODE
+"""
+uitp-worker-runner
+==================
+Worker execution engine and RQ runner for background test runs.
+"""
+
+from uitp_worker_runner.execution import async_execute_run_job, execute_run_job
+from uitp_worker_runner.worker import start_worker
+
+__all__ = [
+    "async_execute_run_job",
+    "execute_run_job",
+    "start_worker",
+]

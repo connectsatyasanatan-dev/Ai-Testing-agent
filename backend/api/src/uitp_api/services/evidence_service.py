@@ -227,14 +227,18 @@ async def get_artifact(
 
     # 3. Check retention expiry
     now = datetime.now(UTC)
-    if artifact.retention_until is not None and artifact.retention_until < now:
-        logger.info(
-            "Artifact %s retention expired at %s (current time: %s)",
-            artifact.id,
-            artifact.retention_until,
-            now,
-        )
-        raise ResourceNotFoundError("Artifact has expired.")
+    ret_until = artifact.retention_until
+    if ret_until is not None:
+        if ret_until.tzinfo is None:
+            ret_until = ret_until.replace(tzinfo=UTC)
+        if ret_until < now:
+            logger.info(
+                "Artifact %s retention expired at %s (current time: %s)",
+                artifact.id,
+                artifact.retention_until,
+                now,
+            )
+            raise ResourceNotFoundError("Artifact has expired.")
 
     # 4. Read payload from storage
     try:
@@ -267,6 +271,7 @@ async def get_artifact(
             "size_bytes": artifact.size_bytes,
         },
     )
+    await session.commit()
 
     return artifact, content
 
@@ -293,11 +298,17 @@ async def list_artifacts_for_run(
     )
 
     artifacts = await evidence_repo.list_for_run(run_id)
-    # Filter out expired artifacts from active retrieval
     now = datetime.now(UTC)
+    def _is_active(ret_until: datetime | None) -> bool:
+        if ret_until is None:
+            return True
+        if ret_until.tzinfo is None:
+            ret_until = ret_until.replace(tzinfo=UTC)
+        return ret_until >= now
+
     active_artifacts = [
         a for a in artifacts
-        if a.retention_until is None or a.retention_until >= now
+        if _is_active(a.retention_until)
     ]
     return active_artifacts
 

@@ -20,7 +20,7 @@ class EvidenceArtifactSchema(BaseModel):
     Raw object-store credentials are never exposed here (SECURITY.md §4).
     """
 
-    model_config = ConfigDict(frozen=True)
+    model_config = ConfigDict(frozen=True, from_attributes=True)
 
     id: str
     """UUIDv4 artifact identifier. Non-guessable; authorization still required."""

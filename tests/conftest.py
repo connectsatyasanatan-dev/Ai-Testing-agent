@@ -1,12 +1,9 @@
 """
 Root conftest.py — shared pytest fixtures and configuration.
-
-Fixtures that are expensive to set up (database connections, running
-servers) should be placed in conftest.py files in the relevant
-subdirectory (integration/, e2e/) so they do not slow down unit tests.
 """
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 
@@ -19,36 +16,76 @@ src_dirs = [
     ROOT / "backend" / "packages" / "adapters" / "base" / "src",
     ROOT / "backend" / "packages" / "adapters" / "http_api" / "src",
     ROOT / "backend" / "packages" / "orchestrator" / "src",
+    ROOT / "backend" / "workers" / "runner" / "src",
 ]
 for p in src_dirs:
     if p.exists() and str(p) not in sys.path:
         sys.path.insert(0, str(p))
 
-try:
-    import pytest
-except ImportError:
-    class _MockMarker:
-        def __getattr__(self, name: str):
-            return lambda *args, **kwargs: (lambda fn: fn) if args and callable(args[0]) else (lambda fn: fn)
+os.environ.setdefault("UITP_SECRET_KEY", "integration-test-secret-key-32chars!!")
+os.environ.setdefault("UITP_DATABASE_URL", "sqlite+aiosqlite:///:memory:")
+os.environ.setdefault("UITP_APP_ENV", "test")
 
-    class _MockPytest:
-        mark = _MockMarker()
+import pytest
+import pytest_asyncio
+from httpx import ASGITransport, AsyncClient
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-        @staticmethod
-        def fixture(*args, **kwargs):
-            return lambda fn: fn
+from uitp_api.database import Base, get_async_session
+from uitp_api.main import create_app
+import uitp_api.models  # noqa: F401
 
-        @staticmethod
-        def raises(exc):
-            class _RaisesContext:
-                def __enter__(self):
-                    return self
 
-                def __exit__(self, exc_type, exc_val, tb):
-                    if exc_type is None:
-                        raise AssertionError(f"Expected exception {exc.__name__} was not raised")
-                    return issubclass(exc_type, exc)
+@pytest_asyncio.fixture(scope="function")
+async def test_engine():
+    """Create a fresh in-memory SQLite engine with all tables for each test."""
+    engine = create_async_engine(
+        "sqlite+aiosqlite:///:memory:",
+        echo=False,
+        connect_args={"check_same_thread": False},
+    )
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
 
-            return _RaisesContext()
+    yield engine
 
-    sys.modules["pytest"] = _MockPytest()
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.drop_all)
+    await engine.dispose()
+
+
+@pytest_asyncio.fixture(scope="function")
+async def db_session(test_engine):
+    """Yield a single AsyncSession for use in tests or seeding."""
+    factory = async_sessionmaker(test_engine, expire_on_commit=False, class_=AsyncSession)
+    async with factory() as session:
+        yield session
+
+
+@pytest.fixture(scope="function")
+def app(test_engine):
+    """FastAPI app instance with the test database overridden."""
+    application = create_app()
+    factory = async_sessionmaker(test_engine, expire_on_commit=False, class_=AsyncSession)
+
+    async def override_get_session():  # type: ignore[return]
+        async with factory() as session:
+            try:
+                yield session
+            except Exception:
+                await session.rollback()
+                raise
+            finally:
+                await session.close()
+
+    application.dependency_overrides[get_async_session] = override_get_session
+    yield application
+    application.dependency_overrides.clear()
+
+
+@pytest_asyncio.fixture(scope="function")
+async def client(app):
+    """AsyncClient targeting the FastAPI app, with the DB overridden."""
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        yield ac

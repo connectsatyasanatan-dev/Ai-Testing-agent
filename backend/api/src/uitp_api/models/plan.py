@@ -70,7 +70,7 @@ class TestPlan(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         back_populates="plan",
         order_by="TestStep.step_order",
         cascade="all, delete-orphan",
-        lazy="select",
+        lazy="selectin",
     )
 
     def __repr__(self) -> str:

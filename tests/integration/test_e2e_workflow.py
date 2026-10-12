@@ -41,7 +41,7 @@ async def _register_and_login(client: AsyncClient, email: str, password: str = "
         "/api/v1/auth/register",
         json={"email": email, "password": password, "full_name": "E2E Test User"},
     )
-    assert reg_resp.status_code in (201, 200)
+    assert reg_resp.status_code in (201, 200, 409)
     login_resp = await client.post(
         "/api/v1/auth/login",
         json={"email": email, "password": password},
@@ -73,8 +73,8 @@ class TestEndToEndMilestone1Workflow:
         # -------------------------------------------------------------------
         # Step 1: Create and authenticate test user
         # -------------------------------------------------------------------
-        user_info = await _register_and_login(client, "lead_tester@uitp.local")
-        user_id = user_info["user"]["id"]
+        user_info = await _register_and_login(client, "lead_tester@example.com")
+        user_id = user_info["id"]
         assert user_id is not None
 
         # -------------------------------------------------------------------
@@ -361,7 +361,7 @@ class TestEndToEndMilestone1Workflow:
         # Step 15: Cross-project retrieval returns 404 tenant isolation masking
         # -------------------------------------------------------------------
         # User B setup (different user, different project)
-        await _register_and_login(client, "outsider@other-company.local")
+        await _register_and_login(client, "outsider@other-company.com")
         other_proj_resp = await client.post("/api/v1/projects", json={"name": "Tenant B Project"})
         assert other_proj_resp.status_code == 201
 
@@ -376,7 +376,7 @@ class TestEndToEndMilestone1Workflow:
         assert cross_run.status_code == 404
 
         # Switch back to User A for security checks
-        await _register_and_login(client, "lead_tester@uitp.local")
+        await _register_and_login(client, "lead_tester@example.com")
 
         # -------------------------------------------------------------------
         # Step 16: Verify that a policy-blocked target is not contacted

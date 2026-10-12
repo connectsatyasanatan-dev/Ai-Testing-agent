@@ -15,6 +15,7 @@ Design and Security Constraints:
 from __future__ import annotations
 
 import asyncio
+import inspect
 import json
 import logging
 import re
@@ -62,9 +63,9 @@ VALID_HTTP_METHODS = frozenset(
 
 
 HTTP_TRANSPORT_ERRORS = (
-    (httpx.TimeoutException, httpx.NetworkError, httpx.TransportError)
+    (httpx.TimeoutException, httpx.NetworkError, httpx.TransportError, TimeoutError, asyncio.TimeoutError)
     if httpx is not None
-    else ()
+    else (TimeoutError, asyncio.TimeoutError)
 )
 
 
@@ -163,7 +164,9 @@ class HttpApiAdapter(BaseAdapter):
         # 6. SSRF & Allowlist Pre-Validation Gate
         allowlist = context.allowlist or step.inputs.get("allowlist")
         try:
-            await self.ssrf_validator.validate_url(target_url, allowlist=allowlist)
+            val = self.ssrf_validator.validate_url(target_url, allowlist=allowlist)
+            if inspect.iscoroutine(val):
+                await val
         except TargetNotAllowlistedError as e:
             logger.warning("Target not allowlisted for step %s: %s", step.step_id, e)
             return StepExecutionResult(
@@ -217,15 +220,18 @@ class HttpApiAdapter(BaseAdapter):
             start_time = time.monotonic()
 
             try:
-                result = await self._execute_http_attempt(
-                    method=method,
-                    target_url=target_url,
-                    headers=headers,
-                    params=params,
-                    body_kwargs=body_kwargs,
+                result = await asyncio.wait_for(
+                    self._execute_http_attempt(
+                        method=method,
+                        target_url=target_url,
+                        headers=headers,
+                        params=params,
+                        body_kwargs=body_kwargs,
+                        timeout=attempt_timeout,
+                        allowlist=allowlist,
+                        attempt=attempt,
+                    ),
                     timeout=attempt_timeout,
-                    allowlist=allowlist,
-                    attempt=attempt,
                 )
 
                 if result.status == StepStatus.BLOCKED:
@@ -263,7 +269,12 @@ class HttpApiAdapter(BaseAdapter):
 
             except HTTP_TRANSPORT_ERRORS as exc:
                 elapsed_ms = (time.monotonic() - start_time) * 1000
-                last_error_message = f"Transport error during {method} {target_url}: {type(exc).__name__}"
+                is_timeout = isinstance(exc, (httpx.TimeoutException, TimeoutError, asyncio.TimeoutError))
+                last_error_message = (
+                    f"Step execution timed out after {attempt_timeout:.2f}s"
+                    if is_timeout
+                    else f"Transport error during {method} {target_url}: {type(exc).__name__}"
+                )
                 last_error_code = ErrorCode.VALIDATION_ERROR
                 logger.warning(
                     "HTTP attempt %d failed for step %s: %s (%.1fms)",
@@ -490,7 +501,7 @@ class HttpApiAdapter(BaseAdapter):
         current_body_kwargs = dict(body_kwargs)
         redirect_history: list[str] = []
 
-        start_time = time.monotonic()
+        start_time = time.perf_counter()
 
         async with httpx.AsyncClient(
             transport=self.transport,
@@ -565,7 +576,7 @@ class HttpApiAdapter(BaseAdapter):
                 else:
                     break
 
-            elapsed_ms = (time.monotonic() - start_time) * 1000
+            elapsed_ms = max(0.1, round((time.perf_counter() - start_time) * 1000, 2))
 
             # Bounded response size check
             content_length = resp.headers.get("content-length")

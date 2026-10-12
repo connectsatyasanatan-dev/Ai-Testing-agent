@@ -65,6 +65,7 @@ class PlanRepository(BaseRepository[TestPlan]):
         """List all versions of a plan ordered by version descending."""
         stmt = (
             select(TestPlan)
+            .options(selectinload(TestPlan.steps))
             .where(TestPlan.plan_id == plan_id)
             .order_by(TestPlan.version.desc())
         )
