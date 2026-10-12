@@ -1,0 +1,50 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "uitp-api"
+version = "0.1.0"
+description = "FastAPI control-plane API for the Universal AI Testing Platform."
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    # Internal packages
+    "uitp-contracts>=0.1.0",
+    "uitp-orchestrator>=0.1.0",
+    "uitp-adapter-base>=0.1.0",
+    "uitp-adapter-http-api>=0.1.0",
+    "uitp-evidence>=0.1.0",
+    "uitp-policy>=0.1.0",
+    # Web framework
+    "fastapi>=0.111,<1",
+    "uvicorn[standard]>=0.30,<1",
+    # Configuration
+    "pydantic-settings>=2.3,<3",
+    "python-dotenv>=1.0,<2",
+    # Database (async SQLAlchemy + PostgreSQL driver)
+    "sqlalchemy[asyncio]>=2.0,<3",
+    "asyncpg>=0.29,<1",           # async PostgreSQL driver
+    "alembic>=1.13,<2",           # schema migrations
+    "aiosqlite>=0.20,<1",         # SQLite for local prototype / tests
+    # Authentication & security
+    "argon2-cffi>=23.1,<25",      # Argon2id password hashing (ADR-009)
+    "itsdangerous>=2.2,<3",       # signed session cookies (Fernet / HMAC)
+    "starlette>=0.37,<1",         # SessionMiddleware ships with Starlette
+    # Caching and distributed rate limiting
+    "redis>=5.0,<6",              # async Redis client for distributed rate limiting
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.2,<9",
+    "pytest-asyncio>=0.23,<1",
+    "anyio[trio]>=4.4,<5",
+    "httpx>=0.27,<1",
+    "ruff>=0.4,<1",
+    "mypy>=1.10,<2",
+    "sqlalchemy[mypy]>=2.0,<3",   # mypy plugin for SQLAlchemy
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/uitp_api"]

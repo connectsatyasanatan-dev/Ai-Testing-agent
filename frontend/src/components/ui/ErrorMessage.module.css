@@ -1,0 +1,15 @@
+.error {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  background: var(--color-danger-bg);
+  border: 1px solid var(--color-danger);
+  border-radius: var(--radius-md);
+  color: var(--color-danger);
+  font-size: var(--text-sm);
+}
+.icon  { flex-shrink: 0; font-size: var(--text-base); }
+.body  { flex: 1; }
+.title { font-weight: var(--font-semibold); margin: 0 0 var(--space-1); }
+.detail{ margin: 0; opacity: 0.85; }

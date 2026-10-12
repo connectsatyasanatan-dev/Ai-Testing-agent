@@ -1,0 +1,23 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "uitp-adapter-base"
+version = "0.1.0"
+description = "Abstract adapter interface and conformance test suite."
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "uitp-contracts>=0.1.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.2,<9",
+    "ruff>=0.4,<1",
+    "mypy>=1.10,<2",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/uitp_adapter_base"]

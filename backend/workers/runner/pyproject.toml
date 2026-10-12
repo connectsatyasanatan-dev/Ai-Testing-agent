@@ -1,0 +1,29 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "uitp-worker-runner"
+version = "0.1.0"
+description = "Worker process entrypoint — imports adapters and orchestrator to execute runs."
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "uitp-contracts>=0.1.0",
+    "uitp-orchestrator>=0.1.0",
+    "uitp-adapter-base>=0.1.0",
+    "uitp-adapter-http-api>=0.1.0",
+    "uitp-evidence>=0.1.0",
+    "uitp-policy>=0.1.0",
+    # rq and redis are added in P3-01 (Milestone 2).
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.2,<9",
+    "ruff>=0.4,<1",
+    "mypy>=1.10,<2",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/uitp_worker_runner"]

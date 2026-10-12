@@ -1,0 +1,26 @@
+/*
+ * reset.css — minimal CSS reset.
+ * Removes browser inconsistencies; does not opinionize layout.
+ */
+*, *::before, *::after { box-sizing: border-box; }
+
+html {
+  -webkit-text-size-adjust: 100%;
+  tab-size: 4;
+}
+
+body {
+  margin: 0;
+  line-height: var(--leading-normal);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+img, video, svg { display: block; max-width: 100%; }
+
+input, button, textarea, select { font: inherit; }
+
+p, h1, h2, h3, h4, h5, h6 { overflow-wrap: break-word; }
+
+/* Remove list styles when a list has no role that implies list semantics. */
+ul[role='list'], ol[role='list'] { list-style: none; padding: 0; margin: 0; }

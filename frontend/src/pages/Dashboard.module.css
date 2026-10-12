@@ -1,0 +1,7 @@
+.page { padding: var(--space-6); }
+.heading { margin-bottom: var(--space-6); }
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: var(--space-4);
+}

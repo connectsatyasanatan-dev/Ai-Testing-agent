@@ -1,0 +1,135 @@
+# =============================================================================
+# .gitignore — Universal AI Testing Platform
+# =============================================================================
+
+# ── Secrets & Environment Configuration — NEVER commit these ────────────────
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+*.p12
+*.pfx
+/secrets/
+/.secrets/
+# Keep documented safe environment examples
+!.env.example
+
+# ── Python ────────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+env/
+.venv*/
+venv*/
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Testing & Coverage
+.pytest_cache/
+htmlcov/
+.coverage
+.coverage.*
+coverage.xml
+*.cover
+.hypothesis/
+
+# Type-checking & Linting caches
+.mypy_cache/
+.dmypy.json
+dmypy.json
+.ruff_cache/
+
+# Local databases
+*.db
+*.sqlite
+*.sqlite3
+
+# ── Node / TypeScript / Frontend ──────────────────────────────────────────────
+node_modules/
+.npm/
+.pnp
+.pnp.js
+
+# Build output
+frontend/dist/
+frontend/.vite/
+frontend/coverage/
+*.tsbuildinfo
+
+# Generated TypeScript types backup files
+*.openapi-ts.bak
+
+# ── Runtime & Test Artifacts ──────────────────────────────────────────────────
+# Anchor root artifacts directories so packages (e.g. backend/packages/evidence) are NOT ignored
+/artifacts/
+/evidence/
+/tests/artifacts/
+/tests/evidence/
+/tests/output/
+/playwright-report/
+/test-results/
+
+# Binary test outputs
+*.png
+*.jpg
+*.jpeg
+*.zip
+*.tar.gz
+*.har
+*.webm
+
+# Explicitly preserve test fixtures
+!tests/fixtures/**/*.png
+!tests/fixtures/**/*.jpg
+!tests/fixtures/**/*.json
+
+# ── Docker / Local Infrastructure ─────────────────────────────────────────────
+/.docker-volumes/
+/postgres-data/
+/redis-data/
+
+# ── IDEs, Editors & OS Files ──────────────────────────────────────────────────
+.vscode/settings.json
+.vscode/launch.json
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# ── Logs ──────────────────────────────────────────────────────────────────────
+*.log
+/logs/
+npm-debug.log*
+yarn-debug.log*
+pnpm-debug.log*
