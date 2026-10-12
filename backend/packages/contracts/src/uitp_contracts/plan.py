@@ -120,6 +120,7 @@ class TestStepSchema(BaseModel):
     Adapters receive this schema verbatim from the orchestrator.
     """
 
+    __test__ = False
     model_config = ConfigDict(frozen=True)
 
     step_id: str = Field(..., min_length=1, max_length=128)

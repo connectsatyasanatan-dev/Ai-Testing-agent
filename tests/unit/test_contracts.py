@@ -205,3 +205,7 @@ class TestErrorResponse:
     def test_message_is_required(self) -> None:
         with pytest.raises(ValidationError):
             ErrorDetail(code=ErrorCode.VALIDATION_ERROR)  # type: ignore[call-arg]
+
+
+TestStepSchemaValidation = TestTestStepSchema
+TestErrorContracts = TestErrorResponse

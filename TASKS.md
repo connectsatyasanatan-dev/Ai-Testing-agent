@@ -209,7 +209,7 @@ Do not claim Milestone 2 (Full MVP) is complete after only Milestone 1.
 
 ## P3 --- durable orchestration
 
--   [ ] **P3-01** Add RQ queue and separate worker process.
+-   [x] **P3-01** Add RQ queue and separate worker process.
     -   Note: this task promotes the existing synchronous adapter calls
         (Milestone 1 mode) into async RQ jobs. The step/run event schema
         must remain unchanged. Remove all `# MILESTONE-1-SYNC-MODE`
