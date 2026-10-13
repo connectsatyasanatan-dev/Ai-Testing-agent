@@ -50,7 +50,7 @@ class LoginRequest(BaseModel):
 
 class RegisterRequest(BaseModel):
     email: EmailStr
-    password: str = Field(..., min_length=12, max_length=128)
+    password: str = Field(..., min_length=8, max_length=128)
     full_name: str | None = Field(default=None, max_length=255)
 
 
@@ -204,3 +204,124 @@ async def me(
 ) -> UserResponse:
     """Return the authenticated user's profile."""
     return UserResponse.model_validate(current_user)
+
+
+# ── API Tokens (ADR-009 / P4-00) ───────────────────────────────────────────────
+
+import hashlib
+import secrets
+from datetime import UTC, datetime, timedelta
+from sqlalchemy import select
+from uitp_api.exceptions import ResourceNotFoundError
+from uitp_api.models.token import ApiToken
+
+
+class CreateTokenRequest(BaseModel):
+    name: str = Field(..., min_length=1, max_length=100)
+    expires_in_days: int | None = Field(default=30, ge=1, le=365)
+
+
+class CreatedTokenResponse(BaseModel):
+    id: str
+    name: str
+    token: str
+    token_prefix: str
+    expires_at: datetime | None
+    created_at: datetime
+
+
+class TokenSummaryResponse(BaseModel):
+    id: str
+    name: str
+    token_prefix: str
+    expires_at: datetime | None
+    last_used_at: datetime | None
+    created_at: datetime
+    is_revoked: bool
+
+    model_config = {"from_attributes": True}
+
+
+class TokenListResponse(BaseModel):
+    items: list[TokenSummaryResponse]
+
+
+@router.post("/tokens", response_model=CreatedTokenResponse, status_code=201)
+async def create_api_token(
+    body: CreateTokenRequest,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_async_session),
+) -> CreatedTokenResponse:
+    """Issue a new opaque API token for CI/CLI authentication (P4-00).
+
+    The raw token string is returned exactly once upon creation.
+    Only its SHA-256 hash is persisted.
+    """
+    random_part = secrets.token_urlsafe(32)
+    raw_token = f"uitp_{random_part}"
+    token_hash = hashlib.sha256(raw_token.encode("utf-8")).hexdigest()
+    token_prefix = f"{raw_token[:10]}..."
+
+    now = datetime.now(UTC)
+    expires_at = now + timedelta(days=body.expires_in_days) if body.expires_in_days else None
+
+    token_obj = ApiToken(
+        id=str(uuid.uuid4()),
+        user_id=current_user.id,
+        name=body.name,
+        token_hash=token_hash,
+        token_prefix=token_prefix,
+        expires_at=expires_at,
+        is_revoked=False,
+    )
+    session.add(token_obj)
+    await session.commit()
+    await session.refresh(token_obj)
+
+    logger.info("API token issued: %s (%s) for user %s", token_obj.id, body.name, current_user.id)
+    return CreatedTokenResponse(
+        id=token_obj.id,
+        name=token_obj.name,
+        token=raw_token,
+        token_prefix=token_obj.token_prefix,
+        expires_at=token_obj.expires_at,
+        created_at=token_obj.created_at,
+    )
+
+
+@router.get("/tokens", response_model=TokenListResponse)
+async def list_api_tokens(
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_async_session),
+) -> TokenListResponse:
+    """List active API tokens for the authenticated user."""
+    stmt = (
+        select(ApiToken)
+        .where(ApiToken.user_id == current_user.id, ApiToken.is_revoked.is_(False))
+        .order_by(ApiToken.created_at.desc())
+    )
+    result = await session.execute(stmt)
+    tokens = result.scalars().all()
+    return TokenListResponse(items=[TokenSummaryResponse.model_validate(t) for t in tokens])
+
+
+@router.delete("/tokens/{token_id}", response_model=MessageResponse)
+async def revoke_api_token(
+    token_id: str,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_async_session),
+) -> MessageResponse:
+    """Revoke an API token immediately."""
+    stmt = select(ApiToken).where(ApiToken.id == token_id, ApiToken.user_id == current_user.id)
+    result = await session.execute(stmt)
+    token = result.scalar_one_or_none()
+
+    if token is None:
+        raise ResourceNotFoundError("API token not found.")
+
+    token.is_revoked = True
+    session.add(token)
+    await session.commit()
+
+    logger.info("API token revoked: %s by user %s", token_id, current_user.id)
+    return MessageResponse(message="API token revoked successfully.")

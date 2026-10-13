@@ -40,6 +40,7 @@ class EvidenceArtifactSchema(BaseModel):
 
     size_bytes: int | None = None
     content_type: str | None = None
+    is_expired: bool = False
 
 
 class ArtifactDownloadResponse(BaseModel):

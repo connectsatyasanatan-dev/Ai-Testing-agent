@@ -181,7 +181,53 @@ test runs.\
 **Resolves open decision:** "Default artifact retention period: Define after
 privacy and operational review. Resolve before P0-04 (database migrations)."
 
+## ADR-014 --- Worker isolation boundaries and centralized execution policy
+
+**Status:** Accepted\
+**Decision:** Harden worker execution through a centralized `ExecutionPolicy` layer,
+pre-validated IP connection pinning (`RebindingSafeTransport`), per-run ephemeral workspaces
+(`ExecutionWorkspace`), run evidence quotas (`RunEvidenceBudget`), and non-root
+container configurations (`UID 10001`, dropped Linux capabilities, bounded tmpfs)
+before enabling browser automation or third-party adapters.\
+**Reason:** Adapters must not define their own disparate resource limits or connection policies.
+Treating all target responses, redirect locations, and DNS resolutions as potentially adversarial
+prevents SSRF, DNS rebinding TOCTOU attacks, disk space exhaustion, and container escape.\
+**Trade-offs & Constraints:**
+- Application-layer IP pinning cannot replace kernel-level network packet filtering (iptables / firewall),
+  which remains a requirement for staging/production environments with untrusted code.
+- Docker containers run non-root and require pre-allocated directory ownership for artifact volumes.
+
+## ADR-015 --- Declarative Test Plan Immutability, Versioning, and Approval Workflow
+
+**Status:** Accepted\
+**Decision:** Test plans enforce strict version immutability across the entire lifecycle:
+1. Approved plan versions cannot be edited in place. Editing an approved plan automatically branches a new draft version.
+2. Attempting to directly modify an approved version via version-specific APIs returns `409 CONFLICT (PLAN_VERSION_IMMUTABLE)`.
+3. Past test runs capture an immutable snapshot of the approved plan version at execution time; subsequent drafts or version increments never mutate past run snapshots.
+4. Transitions to `approved` status require explicit role privileges (`owner` or `maintainer`) and record the approving user's identity and timestamp.
+5. Review workflow supports `draft -> pending_review -> approved | rejected` state transitions. Rejection requires a mandatory or optional audit reason.
+6. Plan actions are strictly declarative and typed against adapter registries. Arbitrary shell, Python, or JavaScript execution within plan steps is forbidden.
+**Reason:** Compliance, deterministic reproducibility, and security require that what was reviewed and approved cannot be tampered with or retroactively altered after execution.\
+**Trade-offs & Constraints:**
+- Branching a new draft on edit requires users to re-submit for review and approval if approval policies are enforced.
+- Soft-deletion (`archived`) preserves referential integrity for historic runs and audit trails.
+
+## ADR-016 --- Vendor-Agnostic AI Provider Abstraction and Deterministic Safety Boundary
+
+**Status:** Accepted\
+**Decision:**
+1. AI providers implement the vendor-neutral `AIProvider` protocol, supporting configurable HTTP endpoints (OpenAI-compatible, Azure, vLLM, Ollama) and a deterministic in-memory `MockAIProvider` for test suites and offline CI.
+2. Credentials (`UITP_AI_API_KEY`) are stored in server-side configuration/SecretStr and never transmitted to the client, logged, or recorded in audit trails.
+3. Prompt injection isolation: user objectives and specifications are encapsulated inside `<untrusted_user_intent>` and `<untrusted_spec>` tags with explicit system instructions prohibiting execution overrides.
+4. AI output is strictly untrusted data: generated actions and assertions undergo deterministic post-generation validation. Any steps attempting code execution (`eval`, `exec`, `subprocess`), unallowlisted actions, raw credential embeddings, or schema violations are filtered into `blocked_steps` and excluded from the test plan.
+5. Mandatory Human Approval Gate: AI-generated plans are unconditionally persisted as `status="draft"` with `requires_approval=True`. Attempting to execute an AI-generated draft before explicit approval is blocked with `422 PLAN_NOT_APPROVED`.
+6. Graceful Degradation: If no AI provider is configured, the endpoint returns `503 AI_PROVIDER_NOT_CONFIGURED` without affecting manual test plan authoring or test execution.
+**Reason:** Ensures security against prompt injection and model hallucinations while preventing vendor lock-in and avoiding paid dependencies during normal CI.\
+**Trade-offs & Constraints:**
+- AI generation cannot execute directly: every generated plan requires human review and explicit approval.
+- Post-validation strictly drops unsupported actions rather than attempting heuristic repair.
+
 ## Open decisions
 
--   **AI provider/model:** Select based on structured-output quality,
-    privacy terms, latency, and budget. Resolve before P5-01.
+-   **Model-assisted Failure Root Cause Summaries (P5-05):** Define evidence-grounded prompt schema referencing only sanitized step attempt logs and assertion failure traces.
+

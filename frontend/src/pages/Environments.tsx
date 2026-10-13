@@ -17,19 +17,23 @@ import {
   useEnvironments,
   useUpdateEnvironment,
 } from "@/hooks/useEnvironments";
+import { useProjects } from "@/hooks/useProjects";
 import type {
   CreateEnvironmentInput,
   Environment,
 } from "@/types/environment";
 import styles from "./Environments.module.css";
 
-const DEFAULT_PROJECT_ID = "default-project";
-
 export default function Environments() {
   const { projectId: urlProjectId } = useParams<{ projectId?: string }>();
-  const [projectId, setProjectId] = useState<string>(
-    urlProjectId || DEFAULT_PROJECT_ID
-  );
+  const { data: projectsData } = useProjects();
+  const projects = projectsData?.items ?? [];
+
+  const [selectedProjectId, setSelectedProjectId] = useState<string>("");
+  const projectId =
+    urlProjectId ||
+    selectedProjectId ||
+    (projects.length > 0 ? projects[0].id : "");
   const [includeArchived, setIncludeArchived] = useState<boolean>(false);
 
   // Modals state
@@ -96,17 +100,33 @@ export default function Environments() {
       {/* Controls Bar */}
       <div className={styles.controlsBar}>
         <div className={styles.projectIdInputWrapper}>
-          <label htmlFor="project-id-input" className={styles.label}>
-            Project ID:
+          <label htmlFor="project-id-select" className={styles.label}>
+            Active Project:
           </label>
-          <input
-            id="project-id-input"
-            type="text"
-            className={styles.projectInput}
-            value={projectId}
-            onChange={(e) => setProjectId(e.target.value.trim())}
-            placeholder="Enter project UUID"
-          />
+          {projects.length > 0 ? (
+            <select
+              id="project-id-select"
+              className={styles.projectInput}
+              value={projectId}
+              onChange={(e) => setSelectedProjectId(e.target.value)}
+              aria-label="Select Project"
+            >
+              {projects.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <input
+              id="project-id-input"
+              type="text"
+              className={styles.projectInput}
+              value={projectId}
+              onChange={(e) => setSelectedProjectId(e.target.value.trim())}
+              placeholder="Enter project UUID"
+            />
+          )}
         </div>
 
         <div className={styles.filterGroup}>

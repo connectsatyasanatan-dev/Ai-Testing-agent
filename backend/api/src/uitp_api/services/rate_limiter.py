@@ -269,3 +269,32 @@ async def check_login_rate_limit(
             message=f"Too many login attempts. Please try again in {retry_after} seconds.",
             retry_after=retry_after,
         )
+
+
+async def check_ai_generate_rate_limit(
+    request: Request,
+    project_id: str,
+    rate_limiter: RateLimiter = Depends(get_rate_limiter),
+    settings: Settings = Depends(get_settings),
+) -> None:
+    """FastAPI route dependency to rate-limit AI plan generation attempts by client IP and project."""
+    ip = get_client_ip(request)
+    key = f"ratelimit:ai_generate:{project_id}:{ip}"
+    allowed, retry_after = await rate_limiter.check_and_increment(
+        key=key,
+        limit=settings.rate_limit_ai_generate,
+        window_seconds=60,
+    )
+    if not allowed:
+        logger.warning(
+            "AI generation rate limit exceeded for client IP %s on project %s (limit=%s/60s, retry_after=%ss)",
+            ip,
+            project_id,
+            settings.rate_limit_ai_generate,
+            retry_after,
+        )
+        raise RateLimitExceededError(
+            message=f"Too many AI generation requests. Please try again in {retry_after} seconds.",
+            retry_after=retry_after,
+        )
+

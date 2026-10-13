@@ -15,9 +15,10 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import time
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any, Sequence
 
 import httpx
@@ -26,6 +27,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from uitp_adapter_base.base import ExecutionContext, StepExecutionResult
 from uitp_adapter_http_api import HttpApiAdapter
 from uitp_api.exceptions import (
+    ConflictError,
+    ConcurrencyLimitExceededError,
     PlanNotApprovedError,
     ResourceNotFoundError,
     ValidationFailedError,
@@ -52,9 +55,10 @@ from uitp_orchestrator import QueueError, QueueUnavailableError, RunQueue
 
 logger = logging.getLogger(__name__)
 
-# Resource limits for Milestone 1 synchronous execution
+# Resource limits for execution and per-project quotas (P3-05)
 MAX_STEPS_PER_RUN = 50
 MAX_RUN_WALL_CLOCK_SECONDS = 300.0
+MAX_CONCURRENT_RUNS_PER_PROJECT = int(os.environ.get("UITP_MAX_CONCURRENT_RUNS_PER_PROJECT", "5"))
 
 
 async def _assert_project_access(
@@ -164,6 +168,18 @@ async def execute_run_sync(
     if env is None or env.project_id != plan.project_id or env.status == "archived":
         raise ResourceNotFoundError("Environment not found.")
 
+    # Concurrency quota check (P3-05)
+    active_count = await run_repo.count_active_runs_for_project(plan.project_id)
+    if active_count >= MAX_CONCURRENT_RUNS_PER_PROJECT:
+        logger.warning(
+            "Project %s reached concurrency limit (%d active runs)",
+            plan.project_id,
+            active_count,
+        )
+        raise ConcurrencyLimitExceededError(
+            f"Project has reached its maximum concurrency limit ({MAX_CONCURRENT_RUNS_PER_PROJECT} active runs). Wait for active runs to finish."
+        )
+
     # 4. Synchronous resource limit checks
     steps = sorted(plan.steps, key=lambda s: s.step_order)
     if len(steps) > MAX_STEPS_PER_RUN:
@@ -204,6 +220,9 @@ async def execute_run_sync(
     adapter: Any = None
     if plan.adapter_type == AdapterType.HTTP_API:
         adapter = HttpApiAdapter(transport=transport)
+    elif plan.adapter_type == AdapterType.WEB:
+        from uitp_adapter_web import PlaywrightAdapter
+        adapter = PlaywrightAdapter()
     else:
         # Mark run failed if unsupported adapter
         run.status = "failed"
@@ -217,7 +236,8 @@ async def execute_run_sync(
         )
         session.add(fail_event)
         await session.commit()
-        return run
+        refreshed_run = await run_repo.get_by_id(run.id)
+        return refreshed_run or run
 
     # 7. Execute Steps Deterministically
     overall_status = "passed"
@@ -326,6 +346,25 @@ async def execute_run_sync(
                     content_type="application/json",
                     redaction_required=True,
                 )
+
+                # Persist screenshot if captured
+                screenshot_bytes = (
+                    result.outputs.get("screenshot_bytes")
+                    or result.outputs.get("failure_screenshot_bytes")
+                )
+                if screenshot_bytes and isinstance(screenshot_bytes, bytes):
+                    try:
+                        await evidence_service.store_artifact(
+                            session,
+                            run_id=run.id,
+                            step_attempt_id=attempt.id,
+                            artifact_type="screenshot",
+                            content=screenshot_bytes,
+                            content_type="image/png",
+                            redaction_required=False,
+                        )
+                    except Exception as ss_exc:
+                        logger.debug("Failed to store screenshot artifact: %s", ss_exc)
             except Exception as ev_exc:
                 logger.exception("Failed to store step evidence for step %s: %s", step_model.step_id, ev_exc)
                 session.add(
@@ -413,9 +452,14 @@ async def execute_run_sync(
         metadata={"plan_id": plan.plan_id, "version": plan.version, "status": overall_status},
     )
 
+    if adapter is not None and hasattr(adapter, "close_session"):
+        try:
+            await adapter.close_session(run.id)
+        except Exception:
+            pass
+
     await session.commit()
     refreshed_run = await run_repo.get_by_id(run.id)
-    assert refreshed_run is not None
     return refreshed_run
 
 
@@ -475,6 +519,18 @@ async def create_and_enqueue_run(
     env = await env_repo.get_by_id(environment_id)
     if env is None or env.project_id != plan.project_id or env.status == "archived":
         raise ResourceNotFoundError("Environment not found.")
+
+    # Concurrency quota check (P3-05)
+    active_count = await run_repo.count_active_runs_for_project(plan.project_id)
+    if active_count >= MAX_CONCURRENT_RUNS_PER_PROJECT:
+        logger.warning(
+            "Project %s reached concurrency limit (%d active runs)",
+            plan.project_id,
+            active_count,
+        )
+        raise ConcurrencyLimitExceededError(
+            f"Project has reached its maximum concurrency limit ({MAX_CONCURRENT_RUNS_PER_PROJECT} active runs). Wait for active runs to finish."
+        )
 
     # 4. Create durable Run record in state 'queued'
     run_id = str(uuid.uuid4())
@@ -576,6 +632,48 @@ async def list_runs_for_project(
     return await run_repo.list_for_project(project_id, limit=limit, offset=offset)
 
 
+async def list_runs_for_project_filtered(
+    session: AsyncSession,
+    *,
+    project_id: str,
+    actor_id: str,
+    status: str | None = None,
+    plan_id: str | None = None,
+    adapter_type: str | None = None,
+    from_date: datetime | None = None,
+    to_date: datetime | None = None,
+    sort_by: str = "created_at",
+    sort_order: str = "desc",
+    limit: int = 50,
+    offset: int = 0,
+) -> tuple[list[Run], int, dict[str, tuple[str, str]]]:
+    await _assert_project_access(session, project_id, actor_id, ("owner", "maintainer", "viewer"))
+    run_repo = RunRepository(session)
+    return await run_repo.list_for_project_filtered(
+        project_id,
+        status=status,
+        plan_id=plan_id,
+        adapter_type=adapter_type,
+        from_date=from_date,
+        to_date=to_date,
+        sort_by=sort_by,
+        sort_order=sort_order,
+        limit=limit,
+        offset=offset,
+    )
+
+
+async def get_project_dashboard_metrics(
+    session: AsyncSession,
+    *,
+    project_id: str,
+    actor_id: str,
+) -> dict[str, Any]:
+    await _assert_project_access(session, project_id, actor_id, ("owner", "maintainer", "viewer"))
+    run_repo = RunRepository(session)
+    return await run_repo.get_project_dashboard_metrics(project_id)
+
+
 async def list_run_events(
     session: AsyncSession,
     *,
@@ -585,3 +683,138 @@ async def list_run_events(
     run = await get_run_by_id(session, run_id=run_id, actor_id=actor_id)
     run_repo = RunRepository(session)
     return await run_repo.list_events_for_run(run.id)
+
+
+async def cancel_run(
+    session: AsyncSession,
+    *,
+    run_id: str,
+    actor_id: str,
+    reason: str | None = None,
+) -> Run:
+    """Request cancellation of an active or queued run (Stage 2 & API_CONTRACT.md).
+
+    Validates project authorization, enforces terminal-state invariants, and transitions
+    active/queued runs to 'cancelled' with durable timeline and audit records.
+    """
+    run_repo = RunRepository(session)
+    run = await run_repo.get_by_id(run_id)
+    if run is None:
+        raise ResourceNotFoundError("Run not found.")
+
+    await _assert_project_access(session, run.project_id, actor_id, ("owner", "maintainer"))
+
+    if run.status in (RunStatus.PASSED.value, RunStatus.FAILED.value):
+        raise ConflictError(f"Run cannot be cancelled because it is in terminal state '{run.status}'.")
+
+    if run.status == RunStatus.CANCELLED.value:
+        return run
+
+    prev_status = run.status
+    now = datetime.now(UTC)
+    run.status = RunStatus.CANCELLED.value
+    run.finished_at = now
+
+    cancel_msg = f"Run cancelled by user: {reason}" if reason else "Run cancelled by user."
+    session.add(
+        RunEvent(
+            id=str(uuid.uuid4()),
+            run_id=run.id,
+            event_type="run_cancelled",
+            timestamp=now,
+            message=cancel_msg,
+            event_metadata={"actor_id": actor_id, "previous_status": prev_status, "reason": reason},
+        )
+    )
+
+    await audit_service.record(
+        session,
+        event_type=AuditEventType.RUN_CANCELLED,
+        actor_id=actor_id,
+        project_id=run.project_id,
+        resource_type="run",
+        resource_id=run.id,
+        metadata={"previous_status": prev_status, "reason": reason},
+    )
+
+    await session.commit()
+    refreshed = await run_repo.get_by_id(run.id)
+    assert refreshed is not None
+    return refreshed
+
+
+async def renew_run_lease(
+    session: AsyncSession,
+    *,
+    run_id: str,
+    worker_id: str,
+    lease_seconds: int = 60,
+) -> Run:
+    """Renew worker lease heartbeat for an actively running test run (Task P3-02)."""
+    run_repo = RunRepository(session)
+    run = await run_repo.get_by_id(run_id)
+    if run is None:
+        raise ResourceNotFoundError("Run not found.")
+
+    if run.status != RunStatus.RUNNING.value:
+        raise ConflictError(f"Cannot renew lease for run in status '{run.status}'.")
+
+    now = datetime.now(UTC)
+    run.worker_id = worker_id
+    run.lease_expires_at = now + timedelta(seconds=lease_seconds)
+    session.add(run)
+    await session.commit()
+    return run
+
+
+async def recover_stale_runs(
+    session: AsyncSession,
+    *,
+    timeout_seconds: int = 300,
+) -> list[str]:
+    """Scan and recover orphaned runs whose worker leases have expired or worker crashed (Task P3-02).
+
+    Transitions stale runs from 'running' to 'failed' and writes a run_failed timeline event.
+    Guarantees no dead worker leaves a run silently passed or indefinitely stuck in running.
+    """
+    from sqlalchemy import select, or_
+
+    now = datetime.now(UTC)
+    cutoff = now - timedelta(seconds=timeout_seconds)
+
+    stmt = (
+        select(Run)
+        .where(
+            Run.status == RunStatus.RUNNING.value,
+            or_(
+                Run.lease_expires_at < now,
+                (Run.lease_expires_at.is_(None) & (Run.started_at < cutoff)),
+            ),
+        )
+    )
+    result = await session.execute(stmt)
+    stale_runs = result.scalars().all()
+
+    recovered_ids: list[str] = []
+    for run in stale_runs:
+        run.status = RunStatus.FAILED.value
+        run.finished_at = now
+        session.add(run)
+
+        fail_event = RunEvent(
+            id=str(uuid.uuid4()),
+            run_id=run.id,
+            event_type="run_failed",
+            timestamp=now,
+            message="Worker lease expired or worker disconnected unexpectedly (automatic crash recovery).",
+            event_metadata={"worker_id": run.worker_id, "recovered_at": now.isoformat()},
+        )
+        session.add(fail_event)
+        recovered_ids.append(run.id)
+        logger.warning("Recovered stale/abandoned run %s (previous worker %s)", run.id, run.worker_id)
+
+    if recovered_ids:
+        await session.commit()
+
+    return recovered_ids
+

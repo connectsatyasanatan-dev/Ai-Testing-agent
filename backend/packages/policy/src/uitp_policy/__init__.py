@@ -15,10 +15,23 @@ from uitp_policy.dns import (
     validate_dns_records,
 )
 from uitp_policy.exceptions import (
+    EvidenceQuotaExceededError,
+    ExecutionPolicyError,
+    ExecutionTimeoutError,
     InvalidTargetUrlError,
+    PayloadLimitExceededError,
     PolicyBlockedError,
     PolicyError,
+    StorageQuotaExceededError,
     TargetNotAllowlistedError,
+)
+from uitp_policy.execution import (
+    DEFAULT_MAX_REQUEST_BYTES,
+    DEFAULT_MAX_RESPONSE_BYTES,
+    DEFAULT_STEP_TIMEOUT_SECONDS,
+    DEFAULT_WALL_CLOCK_TIMEOUT_SECONDS,
+    ExecutionLimits,
+    ExecutionPolicy,
 )
 from uitp_policy.ip import (
     is_hostname_prohibited,
@@ -32,6 +45,9 @@ from uitp_policy.normalizer import (
 from uitp_policy.redirect import (
     RedirectValidator,
 )
+from uitp_policy.transport import (
+    RebindingSafeTransport,
+)
 from uitp_policy.validator import (
     SSRFValidator,
 )
@@ -44,6 +60,11 @@ __all__ = [
     "PolicyBlockedError",
     "TargetNotAllowlistedError",
     "InvalidTargetUrlError",
+    "ExecutionPolicyError",
+    "ExecutionTimeoutError",
+    "PayloadLimitExceededError",
+    "EvidenceQuotaExceededError",
+    "StorageQuotaExceededError",
     "ParsedTarget",
     "normalize_url",
     "is_ip_prohibited",
@@ -58,4 +79,11 @@ __all__ = [
     "SSRFValidator",
     "SsrfPolicyValidator",
     "RedirectValidator",
+    "RebindingSafeTransport",
+    "ExecutionLimits",
+    "ExecutionPolicy",
+    "DEFAULT_WALL_CLOCK_TIMEOUT_SECONDS",
+    "DEFAULT_STEP_TIMEOUT_SECONDS",
+    "DEFAULT_MAX_REQUEST_BYTES",
+    "DEFAULT_MAX_RESPONSE_BYTES",
 ]

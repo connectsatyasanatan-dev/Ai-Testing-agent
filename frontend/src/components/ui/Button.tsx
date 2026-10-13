@@ -1,19 +1,18 @@
 /**
  * Button — accessible, variant-driven button component.
- * Styles are in Button.module.css (manual CSS — no Tailwind).
+ * Follows ADR-012: vanilla CSS Modules, no Tailwind.
  */
 import React from "react";
 import styles from "./Button.module.css";
 
 type Variant = "primary" | "secondary" | "danger" | "ghost" | "outline";
-type Size    = "sm" | "md" | "lg";
+type Size    = "xs" | "sm" | "md" | "lg";
 
 interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
-  variant?:  Variant;
-  size?:     Size;
-  loading?:  boolean;
-  /** Render as any element while keeping button styles — pass e.g. `asChild={<a href="…" />}` */
-  asChild?:  React.ReactElement<{ className?: string; children?: React.ReactNode }>;
+  variant?: Variant;
+  size?:    Size;
+  loading?: boolean;
+  asChild?: React.ReactElement<{ className?: string; children?: React.ReactNode }>;
 }
 
 export function Button({
@@ -26,7 +25,9 @@ export function Button({
   children,
   ...rest
 }: ButtonProps) {
-  const cls = [styles.btn, styles[variant], styles[size], className].filter(Boolean).join(" ");
+  const cls = [styles.btn, styles[variant], styles[size], className]
+    .filter(Boolean)
+    .join(" ");
 
   const content = (
     <>
@@ -43,7 +44,12 @@ export function Button({
   }
 
   return (
-    <button className={cls} disabled={disabled || loading} {...rest}>
+    <button
+      className={cls}
+      disabled={disabled || loading}
+      aria-disabled={disabled || loading}
+      {...rest}
+    >
       {content}
     </button>
   );

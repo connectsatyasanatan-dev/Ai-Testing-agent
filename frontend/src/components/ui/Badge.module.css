@@ -2,22 +2,103 @@
   display: inline-flex;
   align-items: center;
   gap: var(--space-1);
-  padding: 2px var(--space-2);
+  padding: 2px 7px;
   font-size: var(--text-xs);
   font-weight: var(--font-semibold);
+  font-family: var(--font-sans);
   border-radius: var(--radius-full);
   border: 1px solid transparent;
   white-space: nowrap;
+  line-height: 1.4;
+  letter-spacing: 0.01em;
 }
 
 /* Run status variants */
-.passed      { color: var(--color-passed);      background: var(--color-passed-bg); }
-.failed      { color: var(--color-failed);      background: var(--color-failed-bg); }
-.blocked     { color: var(--color-blocked);     background: var(--color-blocked-bg); }
-.inconclusive{ color: var(--color-inconclusive);background: var(--color-inconclusive-bg); }
-.running     { color: var(--color-running);     background: var(--color-running-bg); }
-.cancelled   { color: var(--color-cancelled);   background: var(--color-cancelled-bg); }
-.skipped     { color: var(--color-skipped);     background: var(--color-skipped-bg); }
-.queued      { color: var(--color-queued);      background: var(--color-queued-bg); }
-.default     { color: var(--color-text-muted);  background: var(--color-bg-muted);
-               border-color: var(--color-border); }
+.passed {
+  color: var(--color-passed);
+  background: var(--color-passed-bg);
+  border-color: var(--color-passed-border);
+}
+.failed {
+  color: var(--color-failed);
+  background: var(--color-failed-bg);
+  border-color: var(--color-failed-border);
+}
+.blocked {
+  color: var(--color-blocked);
+  background: var(--color-blocked-bg);
+  border-color: var(--color-blocked-border);
+}
+.inconclusive {
+  color: var(--color-inconclusive);
+  background: var(--color-inconclusive-bg);
+  border-color: var(--color-inconclusive-border);
+}
+.running {
+  color: var(--color-running);
+  background: var(--color-running-bg);
+  border-color: var(--color-running-border);
+}
+.cancelled {
+  color: var(--color-cancelled);
+  background: var(--color-cancelled-bg);
+  border-color: var(--color-cancelled-border);
+}
+.skipped {
+  color: var(--color-skipped);
+  background: var(--color-skipped-bg);
+  border-color: var(--color-skipped-border);
+}
+.queued {
+  color: var(--color-queued);
+  background: var(--color-queued-bg);
+  border-color: var(--color-queued-border);
+}
+.default {
+  color: var(--color-text-muted);
+  background: var(--color-bg-muted);
+  border-color: var(--color-border);
+}
+
+/* Plan approval/status variants */
+.draft {
+  color: var(--color-draft);
+  background: var(--color-draft-bg);
+  border-color: var(--color-draft-border);
+}
+.pending {
+  color: var(--color-pending);
+  background: var(--color-pending-bg);
+  border-color: var(--color-pending-border);
+}
+.approved {
+  color: var(--color-approved);
+  background: var(--color-approved-bg);
+  border-color: var(--color-approved-border);
+}
+.rejected {
+  color: var(--color-rejected);
+  background: var(--color-rejected-bg);
+  border-color: var(--color-rejected-border);
+}
+.archived {
+  color: var(--color-archived);
+  background: var(--color-archived-bg);
+  border-color: var(--color-archived-border);
+}
+
+/* Dot prefix for running states */
+.runningDot::before {
+  content: "";
+  display: inline-block;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: currentColor;
+  animation: badgePulse 1.4s ease-in-out infinite;
+}
+
+@keyframes badgePulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.5; transform: scale(0.85); }
+}

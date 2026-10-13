@@ -1,5 +1,5 @@
 # =============================================================================
-# .gitignore — Universal AI Testing Platform
+# .gitignore — Universal Autonomous AI Testing Platform
 # =============================================================================
 
 # ── Secrets & Environment Configuration — NEVER commit these ────────────────
@@ -15,7 +15,7 @@
 # Keep documented safe environment examples
 !.env.example
 
-# ── Python ────────────────────────────────────────────────────────────────────
+# ── Python & Bytecode ────────────────────────────────────────────────────────
 __pycache__/
 *.py[cod]
 *$py.class
@@ -61,20 +61,28 @@ coverage.xml
 dmypy.json
 .ruff_cache/
 
-# Local databases
+# Local databases & caches
 *.db
+*.db-journal
+*.db-wal
+*.db-shm
 *.sqlite
 *.sqlite3
+*.rdb
 
 # ── Node / TypeScript / Frontend ──────────────────────────────────────────────
 node_modules/
 .npm/
 .pnp
 .pnp.js
+.eslintcache
 
-# Build output
+# Build output & caches
+dist/
 frontend/dist/
+.vite/
 frontend/.vite/
+coverage/
 frontend/coverage/
 *.tsbuildinfo
 
@@ -90,6 +98,9 @@ frontend/coverage/
 /tests/output/
 /playwright-report/
 /test-results/
+/blob-report/
+/.playwright/
+/ms-playwright/
 
 # Binary test outputs
 *.png
@@ -100,19 +111,19 @@ frontend/coverage/
 *.har
 *.webm
 
-# Explicitly preserve test fixtures
+# Explicitly preserve required test fixtures
 !tests/fixtures/**/*.png
 !tests/fixtures/**/*.jpg
 !tests/fixtures/**/*.json
 
-# ── Docker / Local Infrastructure ─────────────────────────────────────────────
+# ── Docker & Local Infrastructure ─────────────────────────────────────────────
 /.docker-volumes/
 /postgres-data/
 /redis-data/
 
 # ── IDEs, Editors & OS Files ──────────────────────────────────────────────────
-.vscode/settings.json
-.vscode/launch.json
+.vscode/
+!.vscode/extensions.json
 .idea/
 *.swp
 *.swo

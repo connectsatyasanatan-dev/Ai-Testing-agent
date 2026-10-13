@@ -451,3 +451,28 @@ class TestEndToEndMilestone1Workflow:
         # but the redirected target http://169.254.169.254 was blocked and NEVER contacted!
         assert len(recorder.requests) == 1
         assert recorder.requests[0]["path"] == "/private-redirect"
+
+        # -------------------------------------------------------------------
+        # Step 18: Verify cancellation of queued run and timeline recording
+        # -------------------------------------------------------------------
+        queued_run_resp = await client.post(
+            f"/api/v1/plans/{plan_id}/runs?background=true",
+            json={"environment_id": env_id, "plan_version": 2},
+        )
+        assert queued_run_resp.status_code == 201
+        queued_run_id = queued_run_resp.json()["id"]
+        assert queued_run_resp.json()["status"] == "queued"
+
+        cancel_resp = await client.post(
+            f"/api/v1/runs/{queued_run_id}/cancel",
+            json={"reason": "E2E workflow cancellation verification"},
+        )
+        assert cancel_resp.status_code == 200
+        assert cancel_resp.json()["status"] == "cancelled"
+
+        # Verify timeline events reflect the cancellation
+        events_resp = await client.get(f"/api/v1/runs/{queued_run_id}/events")
+        assert events_resp.status_code == 200
+        event_types = [e["event_type"] for e in events_resp.json()]
+        assert "run_cancelled" in event_types
+

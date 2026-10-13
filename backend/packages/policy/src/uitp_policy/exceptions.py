@@ -50,3 +50,23 @@ class InvalidTargetUrlError(PolicyError):
 
     def __init__(self, message: str) -> None:
         super().__init__(message, code=ErrorCode.VALIDATION_ERROR)
+
+
+class ExecutionPolicyError(PolicyError):
+    """Raised when execution limits or execution policies are violated."""
+
+
+class ExecutionTimeoutError(ExecutionPolicyError):
+    """Raised when a run or step exceeds configured execution timeout limits."""
+
+
+class PayloadLimitExceededError(ExecutionPolicyError):
+    """Raised when a request or response payload exceeds maximum configured byte limits."""
+
+
+class EvidenceQuotaExceededError(ExecutionPolicyError):
+    """Raised when total run evidence artifacts or byte quota is exceeded."""
+
+
+class StorageQuotaExceededError(ExecutionPolicyError):
+    """Raised when temporary directory storage usage exceeds limits."""

@@ -5,15 +5,16 @@
 # - postgres: Primary application relational database.
 # - redis: Redis instance for RQ job queues and distributed rate limiting.
 # - api: Control plane FastAPI server.
-# - worker: Background RQ worker process for test executions.
+# - worker: Hardened background RQ worker process for test executions (Task P3-07).
 #
-# USAGE:
-#   Start infrastructure only:  docker compose up postgres redis -d
-#   Start all services:         docker compose up -d
-#   Stop and remove volumes:    docker compose down -v
-#
-# Credentials here are for LOCAL DEVELOPMENT ONLY.
-# Never use these values in staging or production.
+# HARDENING & ISOLATION (P3-07):
+# - Non-root container process (UID 10001).
+# - No-new-privileges flag prevents setuid escalation.
+# - Dropped all Linux capabilities (cap_drop: ALL).
+# - CPU, memory, and PID limits enforced.
+# - Bounded tmpfs (/tmp, 128MB, noexec, nosuid, nodev) prevents arbitrary binary execution.
+# - No host Docker socket mounts (/var/run/docker.sock is never mounted).
+# - Secret keys (UITP_SECRET_KEY) are kept out of worker environment.
 # =============================================================================
 
 services:
@@ -52,6 +53,18 @@ services:
       context: .
       dockerfile: Dockerfile
     restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512M
+          pids: 100
+    tmpfs:
+      - /tmp:size=64M,noexec,nosuid,nodev
     environment:
       UITP_APP_ENV: development
       UITP_SECRET_KEY: ${UITP_SECRET_KEY:-local-dev-secret-key-at-least-32-chars-long}
@@ -75,7 +88,20 @@ services:
       dockerfile: Dockerfile
     command: ["python", "-m", "uitp_worker_runner.cli", "--redis-url", "redis://redis:6379/0"]
     restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 1024M
+          pids: 100
+    tmpfs:
+      - /tmp:size=128M,noexec,nosuid,nodev
     environment:
+      UITP_DATABASE_URL: postgresql+asyncpg://postgres:postgres@postgres:5432/uitp_dev
       DATABASE_URL: postgresql+asyncpg://postgres:postgres@postgres:5432/uitp_dev
       UITP_REDIS_URL: redis://redis:6379/0
       UITP_ARTIFACT_STORAGE_PATH: /app/artifacts

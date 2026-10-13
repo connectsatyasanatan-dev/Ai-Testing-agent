@@ -344,3 +344,79 @@ class TestArtifactRetrievalAndAuthorization:
         assert "password" not in meta_str
         assert "token" not in meta_str
         assert "body" not in meta_str
+
+    @pytest.mark.asyncio
+    async def test_safe_response_headers_and_content_type_sanitization(
+        self,
+        client: AsyncClient,
+    ) -> None:
+        """Verify binary artifact downloads include strict security headers and prevent active content."""
+        await _register_and_login(client, "headers_user@test.com")
+        project_id, env_id = await _setup_project_and_env(client, "Headers Project")
+
+        plan_resp = await client.post(
+            f"/api/v1/projects/{project_id}/plans",
+            json={"name": "Headers Plan", "adapter_type": "http_api", "steps": [_valid_step_payload()]},
+        )
+        plan_id = plan_resp.json()["plan_id"]
+        await client.post(f"/api/v1/plans/{plan_id}/approve", json={"version": 1})
+
+        run_resp = await client.post(
+            f"/api/v1/plans/{plan_id}/runs",
+            json={"environment_id": env_id, "plan_version": 1},
+        )
+        run_id = run_resp.json()["id"]
+
+        list_resp = await client.get(f"/api/v1/runs/{run_id}/artifacts")
+        artifact_id = list_resp.json()[0]["id"]
+
+        # Raw binary download
+        dl_resp = await client.get(f"/api/v1/runs/{run_id}/artifacts/{artifact_id}?download=true")
+        assert dl_resp.status_code == 200
+
+        # Safe security headers
+        assert dl_resp.headers.get("x-content-type-options") == "nosniff"
+        assert dl_resp.headers.get("content-security-policy") == "default-src 'none'; sandbox"
+        assert dl_resp.headers.get("x-frame-options") == "DENY"
+        assert "no-store" in dl_resp.headers.get("cache-control", "")
+        assert "attachment" in dl_resp.headers.get("content-disposition", "")
+        assert f"{artifact_id}.json" in dl_resp.headers.get("content-disposition", "")
+
+    @pytest.mark.asyncio
+    async def test_artifact_ownership_swapped_id_denied_with_404(
+        self,
+        client: AsyncClient,
+    ) -> None:
+        """Verifies that accessing Run A with an artifact ID belonging to Run B returns 404."""
+        await _register_and_login(client, "swap_user@test.com")
+        project_id, env_id = await _setup_project_and_env(client, "Swap Project")
+
+        plan_resp = await client.post(
+            f"/api/v1/projects/{project_id}/plans",
+            json={"name": "Swap Plan", "adapter_type": "http_api", "steps": [_valid_step_payload()]},
+        )
+        plan_id = plan_resp.json()["plan_id"]
+        await client.post(f"/api/v1/plans/{plan_id}/approve", json={"version": 1})
+
+        # Run 1
+        r1_resp = await client.post(
+            f"/api/v1/plans/{plan_id}/runs",
+            json={"environment_id": env_id, "plan_version": 1},
+        )
+        run1_id = r1_resp.json()["id"]
+        r1_art_id = (await client.get(f"/api/v1/runs/{run1_id}/artifacts")).json()[0]["id"]
+
+        # Run 2
+        r2_resp = await client.post(
+            f"/api/v1/plans/{plan_id}/runs",
+            json={"environment_id": env_id, "plan_version": 1},
+        )
+        run2_id = r2_resp.json()["id"]
+
+        # Attempt to access Run 1's artifact via Run 2's URL
+        swapped_resp = await client.get(f"/api/v1/runs/{run2_id}/artifacts/{r1_art_id}")
+        assert swapped_resp.status_code == 404
+
+        # Unknown artifact ID
+        unknown_resp = await client.get(f"/api/v1/runs/{run1_id}/artifacts/00000000-0000-0000-0000-000000000000")
+        assert unknown_resp.status_code == 404

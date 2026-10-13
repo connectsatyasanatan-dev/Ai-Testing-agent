@@ -23,6 +23,11 @@ from uitp_api.models.user import User
 from uitp_api.repositories.project_repo import ProjectRepository
 from uitp_api.repositories.user_repo import UserRepository
 
+import hashlib
+from datetime import UTC, datetime
+from sqlalchemy import select
+from uitp_api.models.token import ApiToken
+
 logger = logging.getLogger(__name__)
 
 SESSION_USER_KEY = "user_id"
@@ -32,11 +37,49 @@ async def get_current_user(
     request: Request,
     session: AsyncSession = Depends(get_async_session),
 ) -> User:
-    """FastAPI dependency — resolve the session cookie to a User.
+    """FastAPI dependency — resolve credentials to a User.
 
-    Raises AuthenticationFailedError (401) if the cookie is absent,
-    the session has expired, or the user no longer exists / is inactive.
+    Supports:
+      1. Programmatic clients (CI/CLI): `Authorization: Bearer <token>` (ADR-009, P4-00).
+      2. Browser clients: signed session cookie via SessionMiddleware (ADR-009, P0-05).
+
+    Raises AuthenticationFailedError (401) if neither is provided, expired, or invalid.
     """
+    # 1. Check for Bearer token
+    auth_header = request.headers.get("authorization")
+    if auth_header and auth_header.startswith("Bearer "):
+        raw_token = auth_header[len("Bearer ") :].strip()
+        if not raw_token:
+            raise AuthenticationFailedError("API token required in authorization header.")
+
+        token_hash = hashlib.sha256(raw_token.encode("utf-8")).hexdigest()
+        stmt = (
+            select(ApiToken)
+            .where(ApiToken.token_hash == token_hash, ApiToken.is_revoked.is_(False))
+        )
+        result = await session.execute(stmt)
+        token = result.scalar_one_or_none()
+
+        if token is None:
+            raise AuthenticationFailedError("Invalid or revoked API token.")
+
+        now = datetime.now(UTC)
+        if token.expires_at is not None:
+            exp = token.expires_at if token.expires_at.tzinfo else token.expires_at.replace(tzinfo=UTC)
+            if exp <= now:
+                raise AuthenticationFailedError("API token has expired.")
+
+        # Update last used timestamp
+        token.last_used_at = now
+        session.add(token)
+
+        user = token.user
+        if user is None or not user.is_active:
+            raise AuthenticationFailedError("User is no longer active.")
+
+        return user
+
+    # 2. Check for session cookie
     user_id: str | None = request.session.get(SESSION_USER_KEY)
     if not user_id:
         raise AuthenticationFailedError("Authentication required.")

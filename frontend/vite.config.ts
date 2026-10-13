@@ -20,4 +20,10 @@ export default defineConfig({
     },
   },
   // CSS Modules are handled automatically by Vite for *.module.css files.
+  test: {
+    environment: "jsdom",
+    globals: true,
+    setupFiles: "./src/test/setup.ts",
+  },
 });
+

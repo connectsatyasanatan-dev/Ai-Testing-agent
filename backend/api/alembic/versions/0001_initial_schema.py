@@ -242,10 +242,13 @@ def downgrade() -> None:
     op.drop_table("users")
 
     # Drop custom enum types (PostgreSQL only)
-    for enum in [
-        "project_status", "project_role", "environment_status",
-        "plan_status", "idempotency_class", "risk_level",
-        "run_status", "step_status", "evidence_type",
-        "redaction_status", "audit_event_type", "adapter_status",
-    ]:
-        op.execute(f"DROP TYPE IF EXISTS {enum}")
+    bind = op.get_bind()
+    if bind.dialect.name == "postgresql":
+        for enum in [
+            "project_status", "project_role", "environment_status",
+            "plan_status", "idempotency_class", "risk_level",
+            "run_status", "step_status", "evidence_type",
+            "redaction_status", "audit_event_type", "adapter_status",
+        ]:
+            op.execute(f"DROP TYPE IF EXISTS {enum}")
+

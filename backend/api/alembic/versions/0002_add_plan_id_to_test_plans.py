@@ -21,10 +21,12 @@ def upgrade() -> None:
     op.add_column("test_plans", sa.Column("plan_id", sa.String(36), nullable=True))
     # Backfill plan_id = id for existing rows
     op.execute("UPDATE test_plans SET plan_id = id WHERE plan_id IS NULL")
-    op.alter_column("test_plans", "plan_id", nullable=False)
-    op.create_index("ix_test_plans_plan_id", "test_plans", ["plan_id"])
+    with op.batch_alter_table("test_plans") as batch_op:
+        batch_op.alter_column("plan_id", nullable=False)
+        batch_op.create_index("ix_test_plans_plan_id", ["plan_id"])
 
 
 def downgrade() -> None:
-    op.drop_index("ix_test_plans_plan_id", "test_plans")
-    op.drop_column("test_plans", "plan_id")
+    with op.batch_alter_table("test_plans") as batch_op:
+        batch_op.drop_index("ix_test_plans_plan_id")
+        batch_op.drop_column("plan_id")

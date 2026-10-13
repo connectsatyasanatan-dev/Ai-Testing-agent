@@ -12,10 +12,9 @@
   grid-area: header;
   display: flex;
   align-items: center;
-  padding: 0 var(--space-6);
+  padding: 0 var(--space-4);
   background: var(--color-surface);
   border-bottom: 1px solid var(--color-border);
-  box-shadow: var(--shadow-sm);
   position: sticky;
   top: 0;
   z-index: 100;
@@ -25,18 +24,22 @@
   grid-area: sidebar;
   background: var(--color-bg-subtle);
   border-right: 1px solid var(--color-border);
-  padding: var(--space-4) 0;
+  padding: var(--space-3) 0;
   overflow-y: auto;
+  position: sticky;
+  top: var(--header-height);
+  height: calc(100dvh - var(--header-height));
 }
 
 .main {
   grid-area: main;
-  padding: var(--space-8);
+  padding: var(--space-6) var(--space-8);
   overflow-y: auto;
   background: var(--color-bg);
+  min-height: 0;
 }
 
-/* ── Responsive: collapse sidebar below 768px ─────────────────────────── */
+/* ── Responsive ─────────────────────────────────────────────────────── */
 @media (max-width: 767px) {
   .shell {
     grid-template-columns: 1fr;
@@ -45,4 +48,9 @@
       "main";
   }
   .sidebar { display: none; }
+  .main { padding: var(--space-4); }
+}
+
+@media (max-width: 1024px) {
+  .main { padding: var(--space-6); }
 }

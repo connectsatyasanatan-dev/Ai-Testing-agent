@@ -107,7 +107,7 @@ The platform enforces strict capability negotiation before any step execution:
 
 3. **Current Adapter Status:**
    - **HTTP API (`uitp_adapter_http_api`):** Capabilities declared (`http_api_v1`, actions: `http_request`, `get`, `post`, `put`, `patch`, `delete`, `head`, `options`). Step execution implemented in task P1-04.
-   - **Web / Playwright (`uitp_adapter_web`):** Architecture placeholder only. Deferred to Milestone 2 (task P2-01). Not registered as functional.
+   - **Web / Playwright (`uitp_adapter_web`):** Implemented and registered (`web_playwright_v1`, actions: `navigate`, `goto`, `click`, `fill`, `select`, `select_option`, `wait_for`, `wait`, `screenshot`). Enforces route-level SSRF defense, bounded timeouts and page limits, deterministic assertions, and evidence storage (Tasks P2-01 through P2-05).
 
 Before running a plan:
 1. Resolve adapter from registry by `adapter_id` or `adapter_type`.
@@ -233,4 +233,31 @@ The evidence subsystem (`uitp_evidence`) and artifact APIs provide bounded, safe
    - `GET /api/v1/runs/{run_id}/artifacts/{artifact_id}`: Returns metadata + base64 inline content, or raw binary stream when `?download=true` or `Accept: application/octet-stream`.
    - Tenant Isolation: Scoped strictly to project membership (`owner`, `maintainer`, `viewer`). Requests from non-members or cross-project users receive 404 to prevent resource enumeration.
    - Audit Trail: Emits `ARTIFACT_ACCESSED` audit event without recording payloads or credentials.
+
+## 11. Playwright Web Browser Testing Adapter (P2-01 through P2-05)
+
+The Web adapter (`uitp_adapter_web`) provides deterministic, browser-based UI automation using Playwright Chromium:
+
+1. **Declared Capabilities:**
+   - Adapter ID: `web_playwright_v1`
+   - Adapter Type: `web` (AdapterType.WEB)
+   - Version: `0.1.0`
+   - Actions: `navigate` (alias `goto`), `click`, `fill`, `select` (alias `select_option`), `wait_for` (alias `wait`), `screenshot`.
+
+2. **Security Controls & Sandboxing:**
+   - **Network-Level SSRF Defense (`BrowserSecurityRouter`):** Intercepts 100% of browser traffic via `context.route("**/*")`. Enforces strict scheme allowlist (`http`, `https`), revalidates all redirects via `route.fetch(max_redirects=0)`, and blocks prohibited targets (RFC-1918, link-local, AWS/GCP/Azure metadata `169.254.169.254`, IPv6 equivalents, and non-allowlisted domains). Blocked requests are immediately aborted with `blockedbyclient`.
+   - **Prohibition of Arbitrary Code:** Prohibits `eval`, arbitrary JavaScript strings, `javascript:` URLs, function expressions, DOM object traversal expressions (`window.`, `document.`, `__proto__`), browser extensions, and shell commands.
+   - **Strict Locator Validation (`LocatorResolver`):** Supports only declared declarative strategies: `css`, `text`, `test_id` (`data-testid`), `role`, `label`, and `placeholder`. Rejects malformed or oversized selectors.
+   - **Resource Boundaries:** Bounded navigation timeouts (default 15s) and action timeouts (default 5s). Caps concurrent browser pages/popups at 3 (excess popups closed immediately). Downloads cancelled by default. Ephemeral browser contexts destroyed on completion.
+   - **Credential Redaction:** Masks password and secret values in step execution logs (`[REDACTED]`).
+
+3. **Deterministic Web Assertions (`WebAssertionEngine`):**
+   - Assertions: `url_contains`, `url_equals`, `title_contains`, `title_equals`, `text_visible`, `element_visible`, `element_hidden`.
+   - Bounded execution timeouts (default 3000ms).
+   - Generates structured, deterministic `StepAssertionsOutcome`. Assertion failure automatically triggers failure screenshot evidence capture.
+
+4. **Evidence & Artifact Capture:**
+   - Full-page or viewport screenshots captured on `screenshot` action and on step assertion failures.
+   - Verified with SHA-256 integrity checksums and stored via `uitp_evidence` under `artifact_type="screenshot"` (`image/png`).
+
 

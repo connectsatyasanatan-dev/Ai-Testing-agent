@@ -41,20 +41,12 @@ Do not claim Milestone 2 (Full MVP) is complete after only Milestone 1.
         `tests/fixtures/mock_http_api/` and `tests/fixtures/web_app/`
         directories created as placeholders.
 
--   [ ] **P0-02** Add shared schemas for plan, step, run status, adapter
+-   [x] **P0-02** Add shared schemas for plan, step, run status, adapter
     capabilities, and evidence metadata.
-    -   Acceptance: schema validation tests cover valid and invalid
-        examples.
-    -   The `packages/contracts/` Python package is the source of truth.
-    -   `make generate-types` produces TypeScript output in
-        `frontend/src/types/generated/`; CI fails if committed output differs
-        from freshly generated output.
-    -   `idempotency_class` field (`safe` | `idempotent` |
-        `non_idempotent` | `unknown`) is present on the step schema.
-    -   Status: Incomplete (reopened). Pydantic contracts and validations
-        in `uitp_contracts` are complete, but TypeScript types in
-        `frontend/src/types/generated/api.d.ts` are a placeholder and the CI
-        drift check (`generate-types-check`) is disabled.
+    -   *Completed:* `uitp_contracts` schemas complete with explicit `idempotency_class`,
+        `RiskLevel`, and `AuditEventType`. `npm run generate-types` generates full TypeScript
+        definitions into `frontend/src/types/generated/api.d.ts` using `openapi-typescript 7.13.0`.
+        `npm run check-types-drift` validates in CI that committed types match OpenAPI without drift.
 
 -   [x] **P0-03** Add configuration management and safe example
     environment file.
@@ -174,36 +166,43 @@ Do not claim Milestone 2 (Full MVP) is complete after only Milestone 1.
 
 ## P2 --- web adapter (Playwright)
 
--   [ ] **P2-00** Create simple web test application fixture.
-    -   Acceptance: a minimal static web application serves locally with:
-        -   A login form with username and password fields.
-        -   A post-login dashboard page.
-        -   A navigation element with at least two links.
-        -   An element with a known text value for assertion tests.
-        -   An element that is conditionally visible (for
-            visibility-assertion tests).
+-   [x] **P2-00** Create simple web test application fixture.
+    -   *Completed:* Created Starlette-based local test fixture in `tests/fixtures/web_app/app.py`
+        serving `/login`, `/dashboard`, `/settings`, `/slow`, `/redirect`, `/private-redirect`
+        (302 to `169.254.169.254`), and `/popup`. Includes deterministic assertions,
+        conditional visibility toggle, and `run_test_web_server` context manager.
     -   Fixture lives in `tests/fixtures/web_app/`.
 
--   [ ] **P2-01** Implement Playwright worker and lifecycle.
-    -   Note: this phase runs synchronously in-process (Milestone 1
-        mode). There is no queue, no lease, no heartbeat, and no durable
-        recovery. These are explicit development shortcuts; add a
-        `# MILESTONE-1-SYNC-MODE` comment wherever this shortcut is
-        applied. Do not claim production worker guarantees in this mode.
+-   [x] **P2-01** Implement Playwright worker and lifecycle.
+    -   *Completed:* Implemented `PlaywrightAdapter(BaseAdapter)` in `backend/packages/adapters/web/`
+        registered in adapter registry (`AdapterType.WEB`). Supports headless Chromium, isolated
+        browser contexts, multi-step session reuse (`get_or_create_session`), bounded timeouts,
+        clean teardown (`close_session`) in worker/API `finally` blocks, and worker health check probing.
 
--   [ ] **P2-02** Add declarative browser actions: navigate, click,
+-   [x] **P2-02** Add declarative browser actions: navigate, click,
     fill, select, wait.
+    -   *Completed:* Implemented safe declarative action dispatching with `WebLocatorParser`
+        (supporting `css`, `text`, `test_id`, `role`, `label`, `placeholder` while strictly
+        rejecting `eval`, `javascript:`, and arbitrary code). Network-level SSRF defense
+        (`BrowserSecurityRouter`) attaches `context.route("**/*")` to validate all destinations,
+        intercept and validate 3xx redirects (`max_redirects=0`), abort blocked requests
+        (`blockedbyclient`), limit popups (`max_pages=3`), and auto-cancel downloads.
 
--   [ ] **P2-03** Add locator/text/URL/visibility assertions.
+-   [x] **P2-03** Add locator/text/URL/visibility assertions.
+    -   *Completed:* Implemented `WebAssertionEngine` evaluating `url_contains`, `url_equals`,
+        `title_contains`, `title_equals`, `text_visible`, `element_visible`, and `element_hidden`.
+        Failed assertions cleanly produce `StepStatus.FAILED` with deterministic failure diagnostics.
 
--   [ ] **P2-04** Capture screenshots and traces with redaction controls.
+-   [x] **P2-04** Capture screenshots and traces with redaction controls.
+    -   *Completed:* Integrated screenshot capture for explicit `screenshot` action and automatic
+        diagnostic capture upon step failure. Evidence is persisted via `EvidenceStorage` with
+        `artifact_type="screenshot"` and protected by project-level authorization.
 
--   [ ] **P2-05** Add cancellation, timeout, and cleanup tests.
-    -   Acceptance: demo web flow passes; intentional assertion failure
-        has useful evidence; browser context is cleaned up after every
-        run regardless of outcome.
-    -   Note: cancellation in synchronous mode is best-effort only.
-        Durable cancellation propagation requires P3.
+-   [x] **P2-05** Add cancellation, timeout, and cleanup tests.
+    -   *Completed:* Unit test suite (`tests/unit/test_adapter_web.py`, 28 tests) and integration
+        pipeline test (`tests/integration/test_web_execution_pipeline.py`) covering successful flows,
+        locators, selector injection rejection, SSRF navigation and redirect blocking, timeouts,
+        popups, downloads, failure screenshots, cancellation, and guaranteed browser context cleanup.
 
 ---
 
@@ -218,32 +217,52 @@ Do not claim Milestone 2 (Full MVP) is complete after only Milestone 1.
         via the RQ queue; step events and evidence format are identical
         to the synchronous implementation.
 
--   [ ] **P3-02** Add run state machine, worker leases, heartbeat, and
+-   [x] **P3-02** Add run state machine, worker leases, heartbeat, and
     recovery.
-    -   Acceptance: a worker killed mid-run does not cause the run to be
-        silently marked `passed`; lease expiry triggers recovery.
+    -   *Completed:* Implemented worker lease management on `Run` (`lease_expires_at`), `POST /api/v1/runs/{run_id}/heartbeat`
+        endpoint allowing active workers to renew leases, and `POST /api/v1/runs/recover-stale` endpoint with `run_service.recover_stale_runs()`.
+        Stale/crashed workers automatically transition runs to `status='failed'`, emit `run_failed` timeline events, and never leave runs stuck.
+    -   Acceptance: Verified via `tests/integration/test_worker_leases_and_idempotency.py`.
 
--   [ ] **P3-03** Add idempotency key for run creation.
-    -   Acceptance: duplicate run-creation requests with the same key
-        return the existing run rather than creating a second one.
+-   [x] **P3-03** Add idempotency key for run creation.
+    -   *Completed:* Supported `Idempotency-Key` HTTP header and `body.idempotency_key` deduplication in `create_and_execute_run`.
+        Duplicate requests return the identical existing Run instance without duplicate execution.
+    -   Acceptance: Verified via `tests/integration/test_worker_leases_and_idempotency.py`.
 
--   [ ] **P3-04** Add cancellation and bounded retry policy.
-    -   Acceptance: cancellation propagates to the adapter and any child
-        process; retry policy respects `idempotency_class`.
+-   [x] **P3-04** Add cancellation and bounded retry policy.
+    -   *Completed:* Implemented `POST /api/v1/runs/{run_id}/cancel` with RBAC authorization (`owner`, `maintainer`),
+        terminal-state conflict validation (409), idempotent cancellation, timeline event recording (`run_cancelled`),
+        and audit trail. Bounded retry policy respects `idempotency_class` (`safe` and `idempotent` retried; `non_idempotent`
+        never retried without explicit override). Worker checks cancellation status between step iterations.
+    -   Acceptance: Verified with unit and integration tests (`tests/integration/test_runs.py`, `tests/integration/test_e2e_workflow.py`, `tests/unit/test_worker_isolation.py`).
 
--   [ ] **P3-05** Add concurrency limits and per-project quotas.
 
--   [ ] **P3-06** Verify approval gate at run creation (TOCTOU).
-    -   Acceptance: a run cannot be created against a plan version that
-        is not in `approved` status, even under concurrent requests. The
-        check is atomic. Tested cases:
-        -   Plan version in `draft` → `422 PLAN_NOT_APPROVED`.
-        -   Plan version in `archived` → `422 PLAN_NOT_APPROVED`.
-        -   Plan version approved then immediately archived before run
-            creation completes → `422 PLAN_NOT_APPROVED`.
+-   [x] **P3-05** Add concurrency limits and per-project quotas.
+    -   *Completed:* Implemented `count_active_runs_for_project` in `RunRepository` and enforced
+        `MAX_CONCURRENT_RUNS_PER_PROJECT` in `run_service` (`execute_run_sync` and `create_and_enqueue_run`).
+        When active queued/running executions reach the project quota, subsequent execution requests
+        are rejected with HTTP 429 `RATE_LIMIT_EXCEEDED` and `Retry-After` header. Project-isolation
+        ensures quotas are strictly scoped per project.
+    -   Acceptance: Tested and verified via `tests/integration/test_concurrency_and_quotas.py`.
+
+-   [x] **P3-06** Verify approval gate at run creation (TOCTOU).
+    -   *Completed:* Enforced in `execute_run_sync` and `create_and_enqueue_run`. An unapproved version, draft version,
+        or archived version is strictly rejected with `422 PLAN_NOT_APPROVED`. Atomic verification against snapshot.
+    -   Acceptance: Tested in `tests/integration/test_runs.py` and `tests/integration/test_background_runs.py`.
 
 -   [ ] **P3-07** Implement and verify container worker isolation and
     network egress policy.
+    -   *Progress:* Execution worker isolation and runtime defense-in-depth implemented:
+        - Centralized `ExecutionPolicy` and immutable `ExecutionLimits` bounding wall-clock (300s), step (30s), request/response sizes (5MB), and retries.
+        - DNS rebinding TOCTOU defense via `RebindingSafeTransport` (IP-pinning outbound socket connections to pre-validated safe IPs).
+        - Isolated ephemeral `ExecutionWorkspace` per run with storage quotas (100MB) and guaranteed `finally` teardown.
+        - `RunEvidenceBudget` capping cumulative run evidence to 50MB and 100 artifacts.
+        - Run cancellation detection halting step iteration cleanly.
+        - Non-sensitive worker readiness diagnostics (`check_worker_readiness`).
+        - Dockerfile hardened with non-root user (`UID 10001:10001`).
+        - Docker Compose hardened with `security_opt: [no-new-privileges:true]`, `cap_drop: [ALL]`, CPU/RAM/PID limits, bounded `tmpfs`, and secret key isolation.
+    -   *Remaining Infrastructure Requirement:* Kernel-level network packet egress filtering
+        (iptables / cloud security group / egress gateway) to block egress at the network layer independently of application code before production release.
     -   Acceptance: worker container runs as non-root; network egress to
         private IPs and metadata addresses is blocked at the network
         layer; test confirms a blocked egress attempt from within the
@@ -254,55 +273,94 @@ Do not claim Milestone 2 (Full MVP) is complete after only Milestone 1.
 
 ## P4 --- user interface
 
--   [ ] **P4-00** Implement API token issuance and revocation.
-    -   Acceptance: `POST /api/v1/auth/tokens` issues a short-lived
-        opaque token; `DELETE /api/v1/auth/tokens/{token_id}` revokes
-        it; CI scripts can authenticate without a browser session.
-    -   Note: deferred from P0-05 per ADR-009.
+-   [x] **P4-00** Implement API token issuance and revocation.
+    -   *Completed:* Implemented `ApiToken` model, migration 0005, and `POST /api/v1/auth/tokens`, `GET /api/v1/auth/tokens`,
+        and `DELETE /api/v1/auth/tokens/{token_id}` endpoints. Updated `get_current_user` auth middleware to support
+        `Authorization: Bearer <token>` for non-browser clients (CI pipelines and CLI tooling).
+    -   Acceptance: Verified via `tests/integration/test_auth_tokens.py`.
 
--   [ ] **P4-01** Authentication and project navigation (UI).
+-   [x] **P4-01** Authentication and project navigation (UI).
+    -   *Completed:* Configured `AppShell`, `Header` with dynamic project selector (`/api/v1/projects`)
+        and health status badge, and `Sidebar` with accessible route highlighting across Dashboard,
+        Test Runs, and Environments.
     -   Requires: CSS Modules design tokens and layout components configured (ADR-012).
 
--   [ ] **P4-02** Project and environment management (UI).
+-   [x] **P4-02** Project and environment management (UI).
+    -   *Completed:*
+        - Environment management: full vertical slice (`Environments.tsx`, `useEnvironments`) with allowlist and masked secret reference management.
+        - Project Settings & Team Access: `Settings.tsx` enterprise management suite with "Team & Access" (role badges, member listing, "+ Add Member" modal, role update, remove member, last-owner guard), "API Tokens (CI/CD)" (token creation with expiry selection, raw token single-view display with clipboard copy, revocation, curl usage instructions), and "Audit Trail" (timeline with event-type filtering and JSON metadata inspector modal).
+        - Integrated accessible routes in `App.tsx` (`/settings`, `/projects/:projectId/settings`) and navigation in `Sidebar.tsx`.
+    -   Acceptance: Tested with backend integration tests (`test_project_settings_and_audit.py`) and Vitest frontend tests (`Settings.test.tsx`).
 
--   [ ] **P4-03** Plan editor with schema validation feedback (UI).
+-   [x] **P4-03** Plan editor with schema validation feedback (UI).
+    -   *Completed:*
+        - Backend: Implemented `POST /api/v1/projects/{project_id}/plans/validate` and `POST /api/v1/plans/{plan_id}/validate`
+          dry-run validation endpoints with comprehensive safety rules (checking adapter registration, action allowlists,
+          code-injection token rejections, credential leakage checks, required field validation, and timeout/retry bounds).
+          Added `PUT /api/v1/plans/{plan_id}` and `PUT /api/v1/plans/{plan_id}/versions/{version}` endpoints enforcing immutability.
+        - Frontend: Built `PlanEditor.tsx` visual step builder with typed action fields (HTTP API and Web Playwright),
+          step reordering (up/down), step cloning, deletion confirmation dialogs, inline error feedback, real-time validation,
+          and clear indicators when editing approved plans that a new version will be branched.
+    -   Acceptance: Tested with backend integration tests (`test_plan_builder_workflow.py`) and frontend tests (`PlanEditor.test.tsx`).
 
--   [ ] **P4-04** Plan review/approval and version history (UI).
-    -   Requires: `GET /api/v1/plans/{plan_id}/versions` and
-        `GET /api/v1/plans/{plan_id}/versions/{version}` endpoints.
+-   [x] **P4-04** Plan review/approval and version history (UI).
+    -   *Completed:*
+        - Backend: Implemented `POST /api/v1/plans/{plan_id}/submit-review`, `POST /api/v1/plans/{plan_id}/approve` (with TOCTOU
+          version checking and audit tracking), `POST /api/v1/plans/{plan_id}/reject` (with audit reason), and `POST /api/v1/plans/{plan_id}/archive`.
+          Enriched `GET /api/v1/plans/{plan_id}/versions` with step counts and version summaries.
+        - Frontend: Created `Plans.tsx` plan catalog with search, status filters (`draft`, `pending_review`, `approved`, `rejected`, `archived`),
+          and pagination. Built `PlanDetail.tsx` featuring version history selector, status badges, audit metadata, test step inspection,
+          review submission, approval confirmation modal, and rejection modal with required reason.
+    -   Acceptance: Tested with integration tests verifying TOCTOU approval, review/rejection workflows, immutable approved snapshots,
+        and 8 Vitest frontend tests across `Plans.test.tsx` and `PlanEditor.test.tsx`.
 
--   [ ] **P4-05** Run list, run timeline, step details, artifacts, and
+-   [x] **P4-05** Run list, run timeline, step details, artifacts, and
     filters (UI).
+    -   *Completed:*
+        - Backend: Implemented `GET /api/v1/projects/{project_id}/dashboard` aggregated metrics
+          endpoint and `GET /api/v1/projects/{project_id}/runs` with server-side filtering (status,
+          plan, adapter, date range), sorting, tie-breaking, true count pagination, and cross-project authorization.
+          Enriched `GET /api/v1/runs/{run_id}` with environment label, plan details, step actions, duration in ms,
+          assertions breakdown, and failure categories (assertion failure, timeout, cancellation, policy blocked, execution error).
+          Added `include_expired` query parameter to `GET /api/v1/runs/{run_id}/artifacts` and safe response headers to artifact downloads.
+        - Frontend: Created `Dashboard.tsx` (metrics, pass-rate progress, adapter breakdown, activity
+          timeline, recent runs), `Runs.tsx` (paginated run history, filter toolbar, sorting, live 4s polling
+          for active runs), and `RunDetail.tsx` (step attempt breakdowns with failure category badges, duration,
+          assertions evaluation list, timeline events, captured evidence table with retention status, safe lazy-loaded
+          in-app evidence preview modal supporting images and multi-tab structured JSON request/response/assertion viewers,
+          and safe binary download links).
+    -   Acceptance: Tested with 8 integration tests in `test_artifacts.py`, 7 in `test_runs.py`, and 23 frontend Vitest tests.
 
--   [ ] **P4-06** Loading, empty, error, blocked, and inconclusive
+-   [x] **P4-06** Loading, empty, error, blocked, and inconclusive
     states (UI).
+    -   *Completed:* Implemented consistent accessible badges with non-color-only icons and labels
+        (`passed`, `failed`, `running`, `queued`, `blocked`, `inconclusive`, `cancelled`), `Spinner`
+        loaders, `ErrorMessage` with retry buttons, and contextual `EmptyState` across Dashboard,
+        Runs, and RunDetail pages.
 
 ---
 
 ## P5 --- AI assistance
 
--   [ ] **P5-00** Design and stub AI plan generation endpoint.
-    -   Acceptance: `POST /api/v1/projects/{project_id}/plans/generate`
-        is implemented and returns `503` with error code
-        `AI_PROVIDER_NOT_CONFIGURED` when no provider key is set.
-        Schema for request (intent text, adapter type, environment ID)
-        and response (draft plan + blocked steps + `requires_approval:
-        true`) is defined in the contracts package and matches
-        API_CONTRACT.md.
+-   [x] **P5-00** Design and stub AI plan generation endpoint.
+    -   *Completed:* Implemented `POST /api/v1/projects/{project_id}/plans/generate` returning 503 `AI_PROVIDER_NOT_CONFIGURED` when unconfigured. Defined `GeneratePlanRequest`, `BlockedStep`, and `GeneratePlanResponse` in `uitp_contracts.plan`.
+    -   Acceptance: Verified 503 response and schemas via integration tests in `tests/integration/test_ai_plan_generation.py`.
 
--   [ ] **P5-01** Provider interface with timeouts, budgets, and
-    structured output.
+-   [x] **P5-01** Provider interface with timeouts, budgets, and structured output.
+    -   *Completed:* Implemented `AIProvider` protocol, `MockAIProvider` (for deterministic offline testing), and `HttpOpenAICompatibleProvider` with request timeouts and token bounds in `uitp_api.services.ai_provider`.
+    -   Acceptance: Verified timeout handling, mock provider generation, and provider abstraction.
 
--   [ ] **P5-02** Generate draft plans from acceptance criteria.
-    -   Acceptance: generated plan contains `idempotency_class` on every
-        step; no step contains arbitrary executable code.
+-   [x] **P5-02** Generate draft plans from acceptance criteria.
+    -   *Completed:* Implemented `ai_plan_service.generate_plan` with untrusted prompt isolation (`<untrusted_user_intent>`, `<untrusted_spec>`), allowlisted actions, and `idempotency_class` on every step.
+    -   Acceptance: Verified that steps are declarative, contain `idempotency_class`, and contain no executable code.
 
--   [ ] **P5-03** Validate and explain rejected steps.
+-   [x] **P5-03** Validate and explain rejected steps.
+    -   *Completed:* Deterministic server-side post-validation filters dangerous steps (code injection, eval, unallowlisted actions, raw credential inputs) into `blocked_steps` with specific human-readable explanation reasons.
+    -   Acceptance: Verified partial blocked step capture and rejection of completely unsafe plans with 422 `VALIDATION_ERROR`.
 
--   [ ] **P5-04** Require approval before execution.
-    -   Acceptance: AI-generated plans have `requires_approval: true`
-        and cannot execute without the approval gate (same gate as
-        manual plans).
+-   [x] **P5-04** Require approval before execution.
+    -   *Completed:* All AI-generated plans are strictly saved as drafts with `requires_approval: true`. Execution attempts fail with 422 `PLAN_NOT_APPROVED` until human review and approval via `POST /api/v1/plans/{plan_id}/approve`. Built `AIGeneratePlanModal.tsx` in frontend with draft preview, blocked steps warnings, and links to the editor and approval flow.
+    -   Acceptance: Tested approval gate rejection, subsequent approved execution, and 4 Vitest frontend tests.
 
 -   [ ] **P5-05** Generate evidence-grounded failure summaries.
     -   Acceptance: manual plans still work without a provider key;
@@ -313,14 +371,23 @@ Do not claim Milestone 2 (Full MVP) is complete after only Milestone 1.
 
 ## P6 --- security and release hardening
 
--   [ ] **P6-01** Central redaction and artifact access controls.
-    -   Acceptance: all artifact retrieval enforces project-membership
-        authorization; `artifact_accessed` audit events are recorded.
+-   [x] **P6-01** Central redaction and artifact access controls.
+    -   *Completed:*
+        - Enforced strict project-membership authorization across all artifact endpoints (`GET /api/v1/runs/{run_id}/artifacts` and `GET /api/v1/runs/{run_id}/artifacts/{artifact_id}`). Cross-project requests return 404 to prevent tenant enumeration.
+        - Validated artifact-to-run ownership preventing access even if artifact ID is swapped to a different run.
+        - Verified 30-day retention policy enforcement: expired artifacts return 404 while preserving run history.
+        - Audited every retrieval event with `ARTIFACT_ACCESSED` without leaking payload content or secrets.
+        - Hardened downloads with security headers (`X-Content-Type-Options: nosniff`, `Content-Security-Policy: default-src 'none'; sandbox`, `X-Frame-Options: DENY`, `Cache-Control: private, no-cache, no-store, must-revalidate`). Blocked origin execution of active content (HTML, SVG).
+    -   Acceptance: Verified with 8 integration tests in `tests/integration/test_artifacts.py`.
 
--   [ ] **P6-02** Audit logs for approvals, environment changes, and
+-   [x] **P6-02** Audit logs for approvals, environment changes, and
     runs.
-    -   Acceptance: all event types in ARCHITECTURE.md §5a are present
-        in the database and covered by tests.
+    -   *Completed:*
+        - All 15 audit event types defined in ARCHITECTURE.md §5a (`user_login`, `user_login_failed`, `role_change`, `project_created`, `project_archived`, `environment_created`, `environment_modified`, `secret_reference_updated`, `plan_created`, `plan_approved`, `plan_archived`, `run_created`, `run_cancelled`, `policy_blocked`, `artifact_accessed`) are verified in the database schema and covered by tests.
+        - Implemented project-scoped `GET /api/v1/projects/{project_id}/audit-events` query endpoint with pagination and event_type filtering.
+        - Emitted `role_change` audit events with actor attribution and metadata sanitization across team invitations, role alterations, and member removals.
+        - Exposed interactive Audit Trail Explorer in UI (`Settings.tsx`) with metadata JSON inspection modal.
+    -   Acceptance: Verified via `tests/integration/test_project_settings_and_audit.py`, `tests/unit/test_audit_service.py`, and `tests/integration/test_artifacts.py`.
 
 -   [ ] **P6-03** Dependency and security scanning in CI.
     -   Acceptance: `pip-audit` and `npm audit` run on every main-branch

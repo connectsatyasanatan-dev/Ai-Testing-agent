@@ -146,12 +146,29 @@ make clean
 
 ## Current state
 
-**P0-01 ✓ P0-02 ✓ P0-03 ✓** — skeleton, schemas, and config complete.  
-`/health` and `/ready` are live. Authentication, database, and adapters are next (P0-04 → P1).
+The platform implements Milestone 1 and core Milestone 2 capabilities across API, UI, and Worker:
+- **Authentication & RBAC:** Session auth, login rate limiting, project-level role isolation (`owner`, `maintainer`, `viewer`).
+- **Environments:** Project-scoped environments with strict SSRF defenses and host allowlists.
+- **Test Plans:** Declarative test steps, schema validation, approval workflow, immutable plan versions, and AI-assisted drafting (with strict human approval gates).
+- **Adapters:** HTTP API adapter and Playwright Web UI testing adapter.
+- **Execution & Isolation:** In-process synchronous execution and durable async RQ background queue execution, runtime resource limits, cancellation, and ephemeral workspace cleanup.
+- **Evidence:** Encrypted/redacted response logs, screenshots, and security-header protected downloads.
+- **Frontend SPA:** Full React + TypeScript dashboard, environment manager, plan editor, review flow, runs history, and evidence viewer.
 
-## Security note — local development
+## Running with Docker Compose
 
-Workers run inside the API process in Milestone 1. There is no container
-isolation or network egress policy. Use only non-production targets.
-Full worker sandboxing is introduced in Milestone 2 (P3-07).
-See `docs/SECURITY_AND_AI_SAFETY.md` for the complete threat model.
+To start the complete platform stack (PostgreSQL, Redis, API, and Execution Worker):
+
+```bash
+docker-compose up --build
+```
+
+The API will be available at `http://localhost:8000` and the worker will process queued test runs.
+
+## Security note
+
+- SSRF and private IP restrictions are enforced in application logic and DNS/transport layers (`uitp_policy`).
+- For production deployments, enforce network-layer packet egress controls (iptables, cloud security groups, or egress proxies) to provide defense-in-depth against worker breakout.
+- Model-generated test plans are strictly declarative drafts that require human review and approval prior to execution.
+- See `docs/SECURITY_AND_AI_SAFETY.md` and `docs/WORKER_ISOLATION.md` for details.
+

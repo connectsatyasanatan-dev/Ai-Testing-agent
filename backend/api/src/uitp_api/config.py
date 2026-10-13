@@ -76,14 +76,17 @@ class Settings(BaseSettings):
     # ── Rate limiting ────────────────────────────────────────────────────────
     rate_limit_login: int = Field(default=10, ge=1)
     rate_limit_run_create: int = Field(default=30, ge=1)
+    rate_limit_ai_generate: int = Field(default=10, ge=1)
 
     # ── AI provider (optional) ───────────────────────────────────────────────
     ai_provider: str | None = None
     ai_api_key: SecretStr | None = None
     ai_model: str | None = None
+    ai_base_url: str | None = None
     ai_max_tokens: int = 2048
     ai_timeout_seconds: float = 30.0
     ai_monthly_budget_usd: float | None = None
+
 
     # ── Logging ──────────────────────────────────────────────────────────────
     log_level: str = "INFO"
@@ -100,7 +103,9 @@ class Settings(BaseSettings):
 
     @property
     def ai_enabled(self) -> bool:
-        """True only when both provider name and API key are configured."""
+        """True when AI provider is configured (or mock provider is active)."""
+        if self.ai_provider == "mock":
+            return True
         return self.ai_provider is not None and self.ai_api_key is not None
 
     # ── Validators ───────────────────────────────────────────────────────────

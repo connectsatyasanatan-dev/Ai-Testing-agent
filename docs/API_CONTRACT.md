@@ -57,12 +57,19 @@ objects and validate all request bodies.
 | Method | Path                                                   | Purpose                              |
 |--------|--------------------------------------------------------|--------------------------------------|
 | POST   | `/api/v1/projects/{project_id}/plans`                  | Create plan draft                    |
-| GET    | `/api/v1/projects/{project_id}/plans`                  | List plans in project                |
+| GET    | `/api/v1/projects/{project_id}/plans`                  | List plans in project (status/search)|
+| POST   | `/api/v1/projects/{project_id}/plans/validate`         | Validate new plan payload (dry-run)  |
 | GET    | `/api/v1/plans/{plan_id}`                              | Get current plan (latest version)    |
+| PUT    | `/api/v1/plans/{plan_id}`                              | Edit plan (auto-version if approved) |
 | GET    | `/api/v1/plans/{plan_id}/versions`                     | List all versions of a plan          |
+| POST   | `/api/v1/plans/{plan_id}/versions`                     | Create new version explicitly        |
 | GET    | `/api/v1/plans/{plan_id}/versions/{version}`           | Get a specific plan version          |
+| PUT    | `/api/v1/plans/{plan_id}/versions/{version}`           | Edit version (409 if approved)       |
 | POST   | `/api/v1/plans/{plan_id}/validate`                     | Validate plan (dry-run, no execution)|
-| POST   | `/api/v1/plans/{plan_id}/approve`                      | Approve exact plan version           |
+| POST   | `/api/v1/plans/{plan_id}/submit-review`                | Submit draft plan for review         |
+| POST   | `/api/v1/plans/{plan_id}/approve`                      | Approve exact plan version (TOCTOU)  |
+| POST   | `/api/v1/plans/{plan_id}/reject`                       | Reject plan version with reason      |
+| POST   | `/api/v1/plans/{plan_id}/archive`                      | Archive/soft-delete plan version     |
 
 ### AI-assisted plan generation
 
@@ -90,15 +97,19 @@ objects and validate all request bodies.
 
 | Method | Path                                                        | Purpose                                       |
 |--------|-------------------------------------------------------------|-----------------------------------------------|
-| GET    | `/api/v1/runs/{run_id}/artifacts`                           | List artifacts for a run                      |
-| GET    | `/api/v1/runs/{run_id}/artifacts/{artifact_id}`             | Get artifact metadata or download content     |
+| GET    | `/api/v1/runs/{run_id}/artifacts`                           | List artifacts for a run (`?include_expired=`) |
+| GET    | `/api/v1/runs/{run_id}/artifacts/{artifact_id}`             | Get artifact metadata or inline payload       |
+| GET    | `/api/v1/runs/{run_id}/artifacts/{artifact_id}?download=true`| Stream raw binary with security headers       |
 
 > Artifact routes are scoped under `runs/` so that run-level
 > authorization is enforced before the artifact is resolved. Every
 > request additionally verifies that the run's project matches the
 > requesting user's membership. UUIDv4 artifact IDs provide
 > defence-in-depth but are not a substitute for this authorization
-> check.
+> check. Binary downloads enforce strict security headers
+> (`X-Content-Type-Options: nosniff`, `Content-Security-Policy: default-src 'none'; sandbox`,
+> `X-Frame-Options: DENY`, `Cache-Control: private, no-cache, no-store, must-revalidate`) and
+> block active HTML/SVG rendering in the origin context.
 
 ---
 

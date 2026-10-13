@@ -51,6 +51,10 @@ from uitp_orchestrator.exceptions import (
 )
 from uitp_orchestrator.retry import RetryManager
 from uitp_orchestrator.state_machine import RunStateMachine
+from uitp_policy.exceptions import EvidenceQuotaExceededError, StorageQuotaExceededError
+from uitp_policy.execution import ExecutionLimits, ExecutionPolicy
+from uitp_worker_runner.budget import RunEvidenceBudget
+from uitp_worker_runner.workspace import ExecutionWorkspace
 
 logger = logging.getLogger(__name__)
 
@@ -88,7 +92,8 @@ async def async_execute_run_job(
     session: AsyncSession | None = None,
     database_url: str | None = None,
     transport: httpx.AsyncBaseTransport | None = None,
-    wall_clock_timeout_seconds: float = DEFAULT_WALL_CLOCK_LIMIT_SECONDS,
+    wall_clock_timeout_seconds: float | None = None,
+    execution_policy: ExecutionPolicy | None = None,
 ) -> dict[str, Any]:
     """Execute a single test run asynchronously within a worker context.
 
@@ -98,12 +103,22 @@ async def async_execute_run_job(
     if worker_id is None:
         worker_id = f"worker-{os.getpid()}-{uuid.uuid4().hex[:6]}"
 
+    if execution_policy is None:
+        execution_policy = ExecutionPolicy()
+
+    if wall_clock_timeout_seconds is None:
+        wall_clock_timeout_seconds = execution_policy.limits.wall_clock_timeout_seconds
+
     # Manage session lifecycle if not passed externally
     close_session_at_end = False
     engine_to_dispose = None
 
     if session is None:
-        db_url = database_url or os.environ.get("DATABASE_URL", "sqlite+aiosqlite:///./uitp_dev.db")
+        db_url = (
+            database_url
+            or os.environ.get("UITP_DATABASE_URL")
+            or os.environ.get("DATABASE_URL", "sqlite+aiosqlite:///./uitp_dev.db")
+        )
         kwargs: dict[str, Any] = {}
         if "sqlite" in db_url.lower():
             kwargs["connect_args"] = {"check_same_thread": False}
@@ -120,6 +135,7 @@ async def async_execute_run_job(
             worker_id=worker_id,
             transport=transport,
             wall_clock_timeout_seconds=wall_clock_timeout_seconds,
+            execution_policy=execution_policy,
         )
     finally:
         if close_session_at_end and session is not None:
@@ -134,6 +150,7 @@ async def _do_execute_run(
     worker_id: str,
     transport: httpx.AsyncBaseTransport | None,
     wall_clock_timeout_seconds: float,
+    execution_policy: ExecutionPolicy,
 ) -> dict[str, Any]:
     run_repo = RunRepository(session)
     plan_repo = PlanRepository(session)
@@ -180,6 +197,19 @@ async def _do_execute_run(
     overall_status = RunStatus.PASSED.value
     run_deadline = time.monotonic() + wall_clock_timeout_seconds
 
+    # Allocate isolated per-run workspace and evidence budget
+    workspace = ExecutionWorkspace(
+        run_id=run.id,
+        max_bytes=execution_policy.limits.max_temp_dir_bytes,
+    )
+    workspace.enter()
+    evidence_budget = RunEvidenceBudget(
+        run_id=run.id,
+        max_bytes=execution_policy.limits.max_total_evidence_bytes_per_run,
+        max_artifacts=execution_policy.limits.max_artifacts_per_run,
+    )
+    adapter: Any = None
+
     try:
         # 4. Strict Version Approval Gate Verification
         plan = await plan_repo.get_specific_version(run.plan_id, run.plan_version)
@@ -225,7 +255,10 @@ async def _do_execute_run(
         # 6. Adapter Instantiation
         adapter: Any = None
         if plan.adapter_type == AdapterType.HTTP_API:
-            adapter = HttpApiAdapter(transport=transport)
+            adapter = HttpApiAdapter(transport=transport, execution_policy=execution_policy)
+        elif plan.adapter_type == AdapterType.WEB:
+            from uitp_adapter_web import PlaywrightAdapter
+            adapter = PlaywrightAdapter(execution_policy=execution_policy)
         else:
             logger.error("Unsupported adapter type '%s' for run %s", plan.adapter_type, run.id)
             run.status = RunStatus.FAILED.value
@@ -246,6 +279,43 @@ async def _do_execute_run(
         steps = sorted(plan.steps, key=lambda s: s.step_order)
 
         for step_model in steps:
+            # Check external cancellation
+            refreshed_run = await run_repo.get_by_id(run.id)
+            if refreshed_run and refreshed_run.status == RunStatus.CANCELLED.value:
+                logger.info("Run %s was cancelled externally before step %s.", run.id, step_model.step_id)
+                overall_status = RunStatus.CANCELLED.value
+                session.add(
+                    RunEvent(
+                        id=str(uuid.uuid4()),
+                        run_id=run.id,
+                        step_id=step_model.step_id,
+                        event_type="run_cancelled",
+                        timestamp=datetime.now(UTC),
+                        message="Run execution stopped due to external cancellation.",
+                    )
+                )
+                await session.commit()
+                break
+
+            # Check workspace quota
+            try:
+                workspace.check_storage_quota()
+            except StorageQuotaExceededError as quota_exc:
+                logger.warning("Run %s exceeded workspace quota: %s", run.id, quota_exc)
+                overall_status = RunStatus.FAILED.value
+                session.add(
+                    RunEvent(
+                        id=str(uuid.uuid4()),
+                        run_id=run.id,
+                        step_id=step_model.step_id,
+                        event_type="workspace_quota_exceeded",
+                        timestamp=datetime.now(UTC),
+                        message=str(quota_exc),
+                    )
+                )
+                await session.commit()
+                break
+
             # Check execution timeout
             if time.monotonic() >= run_deadline:
                 logger.warning("Run %s exceeded total wall-clock limit of %.1fs", run.id, wall_clock_timeout_seconds)
@@ -272,6 +342,24 @@ async def _do_execute_run(
                 max_attempts = 1
 
             while current_attempt <= max_attempts:
+                # Check external cancellation before attempt
+                refreshed_run = await run_repo.get_by_id(run.id)
+                if refreshed_run and refreshed_run.status == RunStatus.CANCELLED.value:
+                    logger.info("Run %s was cancelled externally before attempt %d of step %s.", run.id, current_attempt, step_model.step_id)
+                    overall_status = RunStatus.CANCELLED.value
+                    session.add(
+                        RunEvent(
+                            id=str(uuid.uuid4()),
+                            run_id=run.id,
+                            step_id=step_model.step_id,
+                            event_type="run_cancelled",
+                            timestamp=datetime.now(UTC),
+                            message="Attempt halted due to external cancellation.",
+                        )
+                    )
+                    await session.commit()
+                    break
+
                 if time.monotonic() >= run_deadline:
                     break
 
@@ -329,7 +417,7 @@ async def _do_execute_run(
                 session.add(attempt)
                 await session.flush()
 
-                # Persist evidence artifact
+                # Persist evidence artifact with quota enforcement
                 try:
                     evidence_payload = {
                         "step_id": step_model.step_id,
@@ -351,15 +439,60 @@ async def _do_execute_run(
                         "assertions": result.outputs.get("assertions"),
                     }
                     raw_json = json.dumps(evidence_payload)
-                    await evidence_service.store_artifact(
-                        session,
-                        run_id=run.id,
-                        step_attempt_id=attempt.id,
-                        artifact_type="response_log",
-                        content=raw_json.encode("utf-8"),
-                        content_type="application/json",
-                        redaction_required=True,
+                    raw_json_bytes = raw_json.encode("utf-8")
+
+                    if not evidence_budget.can_accept(len(raw_json_bytes)):
+                        logger.warning(
+                            "Evidence budget exceeded for run %s (%d bytes). Skipping persistence.",
+                            run.id,
+                            len(raw_json_bytes),
+                        )
+                        session.add(
+                            RunEvent(
+                                id=str(uuid.uuid4()),
+                                run_id=run.id,
+                                step_id=step_model.step_id,
+                                attempt_id=attempt.id,
+                                event_type="evidence_quota_exceeded",
+                                timestamp=datetime.now(UTC),
+                                message=f"Evidence quota exceeded for run ({evidence_budget.total_bytes_written}/{evidence_budget.max_bytes} bytes).",
+                            )
+                        )
+                    else:
+                        evidence_budget.record_artifact(len(raw_json_bytes))
+                        await evidence_service.store_artifact(
+                            session,
+                            run_id=run.id,
+                            step_attempt_id=attempt.id,
+                            artifact_type="response_log",
+                            content=raw_json_bytes,
+                            content_type="application/json",
+                            redaction_required=True,
+                        )
+
+                    # Persist screenshot artifacts if captured (Web adapter)
+                    screenshot_bytes = (
+                        result.outputs.get("screenshot_bytes")
+                        or result.outputs.get("failure_screenshot_bytes")
                     )
+                    if screenshot_bytes and isinstance(screenshot_bytes, bytes):
+                        if evidence_budget.can_accept(len(screenshot_bytes)):
+                            evidence_budget.record_artifact(len(screenshot_bytes))
+                            await evidence_service.store_artifact(
+                                session,
+                                run_id=run.id,
+                                step_attempt_id=attempt.id,
+                                artifact_type="screenshot",
+                                content=screenshot_bytes,
+                                content_type="image/png",
+                                redaction_required=False,
+                            )
+                        else:
+                            logger.warning(
+                                "Evidence budget exceeded for screenshot in run %s (%d bytes).",
+                                run.id,
+                                len(screenshot_bytes),
+                            )
                 except Exception as ev_exc:
                     logger.exception("Failed to store evidence for step %s: %s", step_model.step_id, ev_exc)
                     session.add(
@@ -454,6 +587,16 @@ async def _do_execute_run(
         raise WorkerExecutionError(f"Worker crashed during run execution: {exc}") from exc
 
     finally:
+        # Guarantee cleanup of browser sessions if applicable
+        if adapter is not None and hasattr(adapter, "close_session"):
+            try:
+                await adapter.close_session(run.id)
+            except Exception as close_exc:
+                logger.debug("Failed closing browser session for run %s: %s", run.id, close_exc)
+
+        # Guarantee cleanup of run's temporary workspace and scratch data
+        workspace.exit()
+
         # Complete Run and record final state if not already terminal
         if not RunStateMachine.is_terminal(run.status):
             RunStateMachine.assert_valid_transition(run.status, overall_status)
@@ -492,6 +635,7 @@ def execute_run_job(
     run_id: str,
     worker_id: str | None = None,
     database_url: str | None = None,
+    execution_policy: ExecutionPolicy | None = None,
 ) -> dict[str, Any]:
     """Synchronous entry point called by RQ Worker."""
     return asyncio.run(
@@ -499,5 +643,6 @@ def execute_run_job(
             run_id=run_id,
             worker_id=worker_id,
             database_url=database_url,
+            execution_policy=execution_policy,
         )
     )

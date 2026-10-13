@@ -19,6 +19,7 @@ class TestPlan(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     """
 
     __tablename__ = "test_plans"
+    __test__ = False
 
     project_id: Mapped[str] = mapped_column(
         String(36),
@@ -36,7 +37,7 @@ class TestPlan(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     adapter_type: Mapped[str] = mapped_column(String(64), nullable=False)
     status: Mapped[str] = mapped_column(
-        Enum("draft", "approved", "archived", name="plan_status"),
+        Enum("draft", "pending_review", "approved", "rejected", "archived", name="plan_status"),
         default="draft",
         nullable=False,
         index=True,

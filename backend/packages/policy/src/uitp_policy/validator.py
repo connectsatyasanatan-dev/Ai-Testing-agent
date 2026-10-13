@@ -22,8 +22,14 @@ logger = logging.getLogger(__name__)
 class SSRFValidator:
     """Validates target URLs against scheme, credential, allowlist, IP, and DNS policies."""
 
-    def __init__(self, resolver: DNSResolver | None = None) -> None:
+    def __init__(
+        self,
+        resolver: DNSResolver | None = None,
+        *,
+        allow_loopback: bool = False,
+    ) -> None:
         self.resolver: DNSResolver = resolver or SystemDNSResolver()
+        self.allow_loopback = allow_loopback
 
     async def validate_url(
         self,
@@ -50,8 +56,12 @@ class SSRFValidator:
         # 1. Parse and normalize
         target = normalize_url(url)
 
+        loopback_ok = self.allow_loopback or bool(
+            allowlist and any(str(item).startswith("127.0.0.1") or str(item).startswith("localhost") for item in allowlist)
+        )
+
         # 2. Check prohibited hostnames
-        is_bad_host, host_reason = is_hostname_prohibited(target.host)
+        is_bad_host, host_reason = is_hostname_prohibited(target.host, allow_loopback=loopback_ok)
         if is_bad_host:
             logger.warning("SSRF block: Prohibited hostname '%s' (%s)", target.host, host_reason)
             raise PolicyBlockedError(
@@ -65,7 +75,7 @@ class SSRFValidator:
         # 4. Check literal IP vs domain name
         literal_ip = parse_ip(target.host)
         if literal_ip is not None:
-            prohibited, reason = is_ip_prohibited(literal_ip)
+            prohibited, reason = is_ip_prohibited(literal_ip, allow_loopback=loopback_ok)
             if prohibited:
                 logger.warning("SSRF block: Literal IP %s (%s)", literal_ip, reason)
                 raise PolicyBlockedError(
@@ -76,7 +86,7 @@ class SSRFValidator:
 
         # 5. Domain DNS resolution
         resolved_ips = await self.resolver.resolve(target.host)
-        validate_dns_records(resolved_ips)
+        validate_dns_records(resolved_ips, allow_loopback=loopback_ok)
 
         return target, resolved_ips
 

@@ -107,6 +107,8 @@ class MockDNSResolver:
 
 def validate_dns_records(
     resolved_ips: list[IPv4Address | IPv6Address],
+    *,
+    allow_loopback: bool = False,
 ) -> None:
     """Validate EVERY resolved address against prohibited IP policies.
 
@@ -117,7 +119,7 @@ def validate_dns_records(
         raise PolicyBlockedError("Target hostname yielded no IP addresses.")
 
     for ip in resolved_ips:
-        prohibited, reason = is_ip_prohibited(ip)
+        prohibited, reason = is_ip_prohibited(ip, allow_loopback=allow_loopback)
         if prohibited:
             raise PolicyBlockedError(
                 message="Destination address is prohibited by target security policy.",

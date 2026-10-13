@@ -73,7 +73,11 @@ class PlanRepository(BaseRepository[TestPlan]):
         return list(result.scalars().all())
 
     async def list_latest_plans_for_project(
-        self, project_id: str, include_archived: bool = False
+        self,
+        project_id: str,
+        include_archived: bool = False,
+        status_filter: str | None = None,
+        search_query: str | None = None,
     ) -> list[TestPlan]:
         """List the latest active plan version for each plan in the project."""
         # Find max version per plan_id
@@ -88,18 +92,30 @@ class PlanRepository(BaseRepository[TestPlan]):
             .subquery()
         )
 
+        join_conditions = [
+            TestPlan.plan_id == subq.c.plan_id,
+            TestPlan.version == subq.c.max_v,
+        ]
+
         stmt = (
             select(TestPlan)
             .options(selectinload(TestPlan.steps))
-            .join(
-                subq,
-                and_(
-                    TestPlan.plan_id == subq.c.plan_id,
-                    TestPlan.version == subq.c.max_v,
-                ),
-            )
-            .order_by(TestPlan.created_at.desc())
+            .join(subq, and_(*join_conditions))
         )
+
+        filter_conditions = []
+        if status_filter:
+            filter_conditions.append(TestPlan.status == status_filter)
+        if search_query:
+            term = f"%{search_query.strip()}%"
+            filter_conditions.append(
+                (TestPlan.name.ilike(term)) | (TestPlan.description.ilike(term))
+            )
+
+        if filter_conditions:
+            stmt = stmt.where(and_(*filter_conditions))
+
+        stmt = stmt.order_by(TestPlan.created_at.desc())
         result = await self._session.execute(stmt)
         return list(result.scalars().all())
 
@@ -113,7 +129,7 @@ class PlanRepository(BaseRepository[TestPlan]):
         """Concurrently safe approval gate using an atomic conditional update.
 
         Returns:
-            rowcount (1 if approved, 0 if plan is not in 'draft' or version mismatched).
+            rowcount (1 if approved, 0 if plan is not in 'draft' or 'pending_review', or version mismatched).
         """
         stmt = (
             update(TestPlan)
@@ -121,7 +137,7 @@ class PlanRepository(BaseRepository[TestPlan]):
                 and_(
                     TestPlan.plan_id == plan_id,
                     TestPlan.version == version,
-                    TestPlan.status == "draft",
+                    TestPlan.status.in_(["draft", "pending_review"]),
                 )
             )
             .values(
@@ -129,6 +145,63 @@ class PlanRepository(BaseRepository[TestPlan]):
                 approved_by=approved_by,
                 approved_at=approved_at,
             )
+        )
+        result = await self._session.execute(stmt)
+        return result.rowcount
+
+    async def atomic_submit_review(
+        self,
+        plan_id: str,
+        version: int,
+    ) -> int:
+        """Concurrently safe transition from draft or rejected to pending_review."""
+        stmt = (
+            update(TestPlan)
+            .where(
+                and_(
+                    TestPlan.plan_id == plan_id,
+                    TestPlan.version == version,
+                    TestPlan.status.in_(["draft", "rejected"]),
+                )
+            )
+            .values(status="pending_review")
+        )
+        result = await self._session.execute(stmt)
+        return result.rowcount
+
+    async def atomic_reject(
+        self,
+        plan_id: str,
+        version: int,
+    ) -> int:
+        """Concurrently safe transition from pending_review or draft to rejected."""
+        stmt = (
+            update(TestPlan)
+            .where(
+                and_(
+                    TestPlan.plan_id == plan_id,
+                    TestPlan.version == version,
+                    TestPlan.status.in_(["draft", "pending_review"]),
+                )
+            )
+            .values(status="rejected")
+        )
+        result = await self._session.execute(stmt)
+        return result.rowcount
+
+    async def atomic_archive(
+        self,
+        plan_id: str,
+        version: int | None = None,
+    ) -> int:
+        """Soft-delete plan version(s)."""
+        conditions = [TestPlan.plan_id == plan_id]
+        if version is not None:
+            conditions.append(TestPlan.version == version)
+        stmt = (
+            update(TestPlan)
+            .where(and_(*conditions))
+            .values(status="archived")
         )
         result = await self._session.execute(stmt)
         return result.rowcount

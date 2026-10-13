@@ -319,3 +319,105 @@ class TestSynchronousRunExecution:
         resp = await client.get(f"/api/v1/runs/{run_a}")
         # Cross-tenant access must return 404 to mask existence
         assert resp.status_code == 404
+
+    @pytest.mark.asyncio
+    async def test_cancel_queued_run_transitions_to_cancelled(self, client: AsyncClient) -> None:
+        await _register_and_login(client, "cancel_owner@test.com")
+        proj, env = await _setup_project_and_env(client, "Cancel Test Proj")
+        plan_id = (
+            await client.post(
+                f"/api/v1/projects/{proj}/plans",
+                json={
+                    "name": "Plan to Cancel",
+                    "adapter_type": "http_api",
+                    "steps": [_valid_step_payload("step_1", "/ok")],
+                },
+            )
+        ).json()["plan_id"]
+        await client.post(f"/api/v1/plans/{plan_id}/approve", json={"version": 1})
+
+        # Create queued run
+        create_resp = await client.post(
+            f"/api/v1/plans/{plan_id}/runs?background=true",
+            json={"environment_id": env},
+        )
+        assert create_resp.status_code == 201
+        run_id = create_resp.json()["id"]
+        assert create_resp.json()["status"] == "queued"
+
+        # Cancel the queued run
+        cancel_resp = await client.post(
+            f"/api/v1/runs/{run_id}/cancel",
+            json={"reason": "Manual cancellation for test verification"},
+        )
+        assert cancel_resp.status_code == 200
+        assert cancel_resp.json()["status"] == "cancelled"
+
+        # Timeline events should reflect cancellation
+        events_resp = await client.get(f"/api/v1/runs/{run_id}/events")
+        assert events_resp.status_code == 200
+        event_types = [e["event_type"] for e in events_resp.json()]
+        assert "run_cancelled" in event_types
+
+        # Cancelling an already cancelled run should be idempotent
+        idempotent_cancel = await client.post(f"/api/v1/runs/{run_id}/cancel")
+        assert idempotent_cancel.status_code == 200
+        assert idempotent_cancel.json()["status"] == "cancelled"
+
+    @pytest.mark.asyncio
+    async def test_cancel_terminal_run_returns_conflict(self, client: AsyncClient) -> None:
+        await _register_and_login(client, "terminal_owner@test.com")
+        proj, env = await _setup_project_and_env(client, "Terminal Run Proj")
+        plan_id = (
+            await client.post(
+                f"/api/v1/projects/{proj}/plans",
+                json={
+                    "name": "Sync Plan",
+                    "adapter_type": "http_api",
+                    "steps": [_valid_step_payload("step_1", "/ok")],
+                },
+            )
+        ).json()["plan_id"]
+        await client.post(f"/api/v1/plans/{plan_id}/approve", json={"version": 1})
+
+        # Run synchronously to completion (passed)
+        create_resp = await client.post(
+            f"/api/v1/plans/{plan_id}/runs",
+            json={"environment_id": env},
+        )
+        assert create_resp.status_code == 201
+        assert create_resp.json()["status"] == "passed"
+        run_id = create_resp.json()["id"]
+
+        # Attempt to cancel finished run
+        cancel_resp = await client.post(f"/api/v1/runs/{run_id}/cancel")
+        assert cancel_resp.status_code == 409
+        assert "terminal state" in cancel_resp.json()["error"]["message"]
+
+    @pytest.mark.asyncio
+    async def test_cross_project_cancel_rejected_with_404(self, client: AsyncClient) -> None:
+        await _register_and_login(client, "user_x@test.com")
+        proj_x, env_x = await _setup_project_and_env(client, "Project X")
+        plan_x = (
+            await client.post(
+                f"/api/v1/projects/{proj_x}/plans",
+                json={
+                    "name": "Plan X",
+                    "adapter_type": "http_api",
+                    "steps": [_valid_step_payload("step_1", "/ok")],
+                },
+            )
+        ).json()["plan_id"]
+        await client.post(f"/api/v1/plans/{plan_x}/approve", json={"version": 1})
+        run_x = (
+            await client.post(
+                f"/api/v1/plans/{plan_x}/runs?background=true",
+                json={"environment_id": env_x},
+            )
+        ).json()["id"]
+
+        # User Y tries to cancel User X's run
+        await _register_and_login(client, "user_y@test.com")
+        cancel_resp = await client.post(f"/api/v1/runs/{run_x}/cancel")
+        assert cancel_resp.status_code == 404
+

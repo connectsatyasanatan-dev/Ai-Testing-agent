@@ -33,12 +33,16 @@ def parse_ip(address_str: str) -> IPv4Address | IPv6Address | None:
         return None
 
 
-def is_ip_prohibited(ip: IPv4Address | IPv6Address) -> tuple[bool, str]:
+def is_ip_prohibited(
+    ip: IPv4Address | IPv6Address,
+    *,
+    allow_loopback: bool = False,
+) -> tuple[bool, str]:
     """Evaluate whether an IP address belongs to a prohibited SSRF category.
 
     Categories blocked:
       - Cloud metadata addresses (e.g. 169.254.169.254, fd00:ec2::254)
-      - Loopback (127.0.0.0/8, ::1)
+      - Loopback (127.0.0.0/8, ::1) unless explicitly permitted (e.g. in test fixtures)
       - Private RFC-1918 / Unique-Local (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, fc00::/7)
       - Link-local (169.254.0.0/16, fe80::/10)
       - Multicast (224.0.0.0/4, ff00::/8)
@@ -55,6 +59,8 @@ def is_ip_prohibited(ip: IPv4Address | IPv6Address) -> tuple[bool, str]:
 
     # 2. Loopback
     if ip.is_loopback:
+        if allow_loopback:
+            return False, "Loopback destination permitted"
         return True, "Loopback destination address"
 
     # 3. Private / RFC-1918 / ULA
@@ -80,11 +86,17 @@ def is_ip_prohibited(ip: IPv4Address | IPv6Address) -> tuple[bool, str]:
     return False, "Public IP permitted"
 
 
-def is_hostname_prohibited(hostname: str) -> tuple[bool, str]:
+def is_hostname_prohibited(
+    hostname: str,
+    *,
+    allow_loopback: bool = False,
+) -> tuple[bool, str]:
     """Check for known prohibited hostnames (metadata or localhost names)."""
     norm = hostname.lower().rstrip(".")
 
     if norm == "localhost" or norm.endswith(".localhost") or norm == "local":
+        if allow_loopback:
+            return False, "Localhost hostname permitted"
         return True, "Localhost hostname"
 
     if norm in PROHIBITED_METADATA_HOSTNAMES:

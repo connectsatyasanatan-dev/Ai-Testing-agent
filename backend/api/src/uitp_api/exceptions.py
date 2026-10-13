@@ -117,4 +117,12 @@ class RateLimitExceededError(UITPException):
             message=message,
             headers=headers,
         )
-        self.retry_after = retry_after
+class ConcurrencyLimitExceededError(RateLimitExceededError):
+    """Raised when active runs for a project exceed concurrency limits (HTTP 429)."""
+
+    def __init__(
+        self,
+        message: str = "Project concurrency limit exceeded. Wait for existing runs to finish.",
+        retry_after: int | None = 10,
+    ) -> None:
+        super().__init__(message=message, retry_after=retry_after)

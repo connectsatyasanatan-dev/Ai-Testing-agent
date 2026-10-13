@@ -36,13 +36,15 @@ from uitp_contracts.enums import (
     IdempotencyClass,
     StepStatus,
 )
-from uitp_contracts.plan import TestStepSchema
 from uitp_policy.exceptions import (
     InvalidTargetUrlError,
     PolicyBlockedError,
     TargetNotAllowlistedError,
 )
+from uitp_contracts.plan import TestStepSchema
+from uitp_policy.execution import ExecutionLimits, ExecutionPolicy
 from uitp_policy.redirect import RedirectValidator
+from uitp_policy.transport import RebindingSafeTransport
 from uitp_policy.validator import SSRFValidator
 from uitp_adapter_http_api.assertions import HttpAssertionEngine
 
@@ -93,6 +95,7 @@ class HttpApiAdapter(BaseAdapter):
     def __init__(
         self,
         *,
+        execution_policy: ExecutionPolicy | None = None,
         max_redirects: int = DEFAULT_MAX_REDIRECTS,
         max_response_bytes: int = DEFAULT_MAX_RESPONSE_BYTES,
         max_request_bytes: int = DEFAULT_MAX_REQUEST_BYTES,
@@ -101,14 +104,32 @@ class HttpApiAdapter(BaseAdapter):
         transport: httpx.AsyncBaseTransport | None = None,
         assertion_engine: HttpAssertionEngine | None = None,
     ) -> None:
-        self.max_redirects = max_redirects
-        self.max_response_bytes = max_response_bytes
-        self.max_request_bytes = max_request_bytes
-        self.ssrf_validator: SSRFValidator = ssrf_validator or SSRFValidator()
-        self.redirect_validator: RedirectValidator = (
-            redirect_validator
-            or RedirectValidator(validator=self.ssrf_validator, max_redirects=self.max_redirects)
-        )
+        if execution_policy is not None:
+            self.execution_policy = execution_policy
+            self.max_redirects = execution_policy.limits.max_redirects
+            self.max_response_bytes = execution_policy.limits.max_response_bytes
+            self.max_request_bytes = execution_policy.limits.max_request_bytes
+            self.ssrf_validator = execution_policy.ssrf_validator
+            self.redirect_validator = execution_policy.redirect_validator
+        else:
+            self.max_redirects = max_redirects
+            self.max_response_bytes = max_response_bytes
+            self.max_request_bytes = max_request_bytes
+            self.ssrf_validator = ssrf_validator or SSRFValidator()
+            self.redirect_validator = (
+                redirect_validator
+                or RedirectValidator(validator=self.ssrf_validator, max_redirects=self.max_redirects)
+            )
+            limits = ExecutionLimits(
+                max_redirects=self.max_redirects,
+                max_response_bytes=self.max_response_bytes,
+                max_request_bytes=self.max_request_bytes,
+            )
+            self.execution_policy = ExecutionPolicy(
+                limits=limits,
+                ssrf_validator=self.ssrf_validator,
+                redirect_validator=self.redirect_validator,
+            )
         self.transport = transport
         self.assertion_engine: HttpAssertionEngine = assertion_engine or HttpAssertionEngine()
 
@@ -148,6 +169,17 @@ class HttpApiAdapter(BaseAdapter):
         target_url, err_res = self._resolve_url(step, context)
         if err_res is not None:
             return err_res
+
+        # Scheme validation via execution policy
+        try:
+            self.execution_policy.validate_url_scheme(target_url)
+        except InvalidTargetUrlError as e:
+            return StepExecutionResult(
+                status=StepStatus.FAILED,
+                error_code=ErrorCode.VALIDATION_ERROR,
+                error_message=str(e),
+                outputs={"url": target_url, "attempt_count": 0},
+            )
 
         # 4. Header validation (CRLF injection prevention)
         headers, err_res = self._validate_headers(step.inputs.get("headers"))
@@ -196,8 +228,8 @@ class HttpApiAdapter(BaseAdapter):
             self._determine_retry_rules(step)
         )
 
-        # 8. Timeout bounding
-        timeout = min(step.timeout_seconds, context.timeout_seconds)
+        # 8. Timeout bounding via execution policy
+        timeout = self.execution_policy.compute_step_timeout(step.timeout_seconds, context.timeout_seconds)
         deadline = time.monotonic() + timeout
 
         # 9. Execution & Retry Loop
@@ -503,19 +535,42 @@ class HttpApiAdapter(BaseAdapter):
 
         start_time = time.perf_counter()
 
+        safe_transport = RebindingSafeTransport(
+            validator=self.ssrf_validator,
+            allowlist=allowlist,
+            underlying_transport=self.transport,
+        )
+
         async with httpx.AsyncClient(
-            transport=self.transport,
+            transport=safe_transport,
             timeout=timeout,
             follow_redirects=False,
         ) as client:
             while True:
-                resp = await client.request(
-                    current_method,
-                    current_url,
-                    headers=current_headers,
-                    params=params if not redirect_history else None,
-                    **current_body_kwargs,
-                )
+                try:
+                    resp = await client.request(
+                        current_method,
+                        current_url,
+                        headers=current_headers,
+                        params=params if not redirect_history else None,
+                        **current_body_kwargs,
+                    )
+                except PolicyBlockedError as e:
+                    logger.warning("SSRF policy blocked attempt: %s (%s)", current_url, e)
+                    return StepExecutionResult(
+                        status=StepStatus.BLOCKED,
+                        error_code=ErrorCode.POLICY_BLOCKED,
+                        error_message=str(e),
+                        outputs={"url": current_url, "attempt_count": attempt},
+                    )
+                except TargetNotAllowlistedError as e:
+                    logger.warning("Target not allowlisted during attempt: %s (%s)", current_url, e)
+                    return StepExecutionResult(
+                        status=StepStatus.BLOCKED,
+                        error_code=ErrorCode.TARGET_NOT_ALLOWLISTED,
+                        error_message=str(e),
+                        outputs={"url": current_url, "attempt_count": attempt},
+                    )
 
                 if (
                     resp.status_code in (301, 302, 303, 307, 308)

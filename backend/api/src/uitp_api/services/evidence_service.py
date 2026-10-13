@@ -281,6 +281,7 @@ async def list_artifacts_for_run(
     *,
     run_id: str,
     actor_id: str,
+    include_expired: bool = False,
 ) -> list[EvidenceArtifact]:
     """List all valid artifacts for a run."""
     run_repo = RunRepository(session)
@@ -298,6 +299,9 @@ async def list_artifacts_for_run(
     )
 
     artifacts = await evidence_repo.list_for_run(run_id)
+    if include_expired:
+        return artifacts
+
     now = datetime.now(UTC)
     def _is_active(ret_until: datetime | None) -> bool:
         if ret_until is None:

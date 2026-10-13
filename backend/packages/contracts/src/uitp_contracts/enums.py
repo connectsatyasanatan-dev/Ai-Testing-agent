@@ -35,11 +35,39 @@ class StepStatus(StrEnum):
     CANCELLED = "cancelled"
 
 
+class AgentRole(StrEnum):
+    """Specialist roles in the multi-agent AI orchestration architecture."""
+
+    PLANNER = "planner"
+    API_SPECIALIST = "api_specialist"
+    UI_SPECIALIST = "ui_specialist"
+    EVALUATOR = "evaluator"
+    # Optional extensions:
+    SECURITY_SPECIALIST = "security_specialist"
+    INTEGRATION_SPECIALIST = "integration_specialist"
+
+
+class TaskStatus(StrEnum):
+    """Lifecycle status of an individual task node in the execution DAG."""
+
+    PENDING = "pending"
+    READY = "ready"
+    RUNNING = "running"
+    PASSED = "passed"
+    FAILED = "failed"
+    BLOCKED = "blocked"
+    SKIPPED = "skipped"
+    CANCELLED = "cancelled"
+
+
+
 class PlanStatus(StrEnum):
     """Lifecycle status of a test plan version (supports soft-delete)."""
 
     DRAFT = "draft"
+    PENDING_REVIEW = "pending_review"
     APPROVED = "approved"
+    REJECTED = "rejected"
     ARCHIVED = "archived"
 
 
@@ -118,6 +146,9 @@ class AssertionType(StrEnum):
     RESPONSE_TIME_UNDER = "response_time_under"
     # Web adapter assertions (P2-03):
     URL_CONTAINS = "url_contains"
+    URL_EQUALS = "url_equals"
+    TITLE_CONTAINS = "title_contains"
+    TITLE_EQUALS = "title_equals"
     TEXT_VISIBLE = "text_visible"
     ELEMENT_VISIBLE = "element_visible"
     ELEMENT_HIDDEN = "element_hidden"
@@ -150,6 +181,8 @@ class AuditEventType(StrEnum):
     SECRET_REFERENCE_UPDATED = "secret_reference_updated"
     PLAN_CREATED = "plan_created"
     PLAN_APPROVED = "plan_approved"
+    PLAN_REVIEW_REQUESTED = "plan_review_requested"
+    PLAN_REJECTED = "plan_rejected"
     PLAN_ARCHIVED = "plan_archived"
     RUN_CREATED = "run_created"
     RUN_CANCELLED = "run_cancelled"

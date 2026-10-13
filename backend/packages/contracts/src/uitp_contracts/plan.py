@@ -18,10 +18,13 @@ from pydantic import BaseModel, ConfigDict, Field, HttpUrl, field_validator
 
 from uitp_contracts.enums import (
     AdapterType,
+    AgentRole,
     AssertionType,
     IdempotencyClass,
     PlanStatus,
     RiskLevel,
+    RunStatus,
+    TaskStatus,
 )
 
 
@@ -250,7 +253,58 @@ class ApprovePlanRequest(BaseModel):
     """
 
     version: int = Field(..., ge=1)
-    """The exact plan version being approved. Must match current draft version."""
+    """The exact plan version being approved. Must match current draft or pending_review version."""
+
+
+class SubmitReviewRequest(BaseModel):
+    """Request body for POST /api/v1/plans/{plan_id}/submit-review."""
+
+    version: int = Field(..., ge=1)
+
+
+class RejectPlanRequest(BaseModel):
+    """Request body for POST /api/v1/plans/{plan_id}/reject."""
+
+    version: int = Field(..., ge=1)
+    reason: str | None = None
+
+
+class UpdatePlanRequest(BaseModel):
+    """Request body for PUT /api/v1/plans/{plan_id} or PUT /api/v1/plans/{plan_id}/versions/{version}."""
+
+    name: str | None = Field(default=None, min_length=1, max_length=255)
+    description: str | None = None
+    steps: list[TestStepSchema] = Field(..., min_length=1, max_length=100)
+
+
+class ValidationIssue(BaseModel):
+    """Detailed validation issue for inline feedback in the builder UI."""
+
+    model_config = ConfigDict(frozen=True)
+
+    field: str | None = None
+    step_id: str | None = None
+    message: str
+    severity: str = "error"  # "error" | "warning"
+
+
+class ValidatePlanRequest(BaseModel):
+    """Request body for plan validation dry-run endpoints."""
+
+    adapter_type: AdapterType
+    steps: list[TestStepSchema] = Field(default_factory=list)
+    environment_id: str | None = None
+
+
+class PlanValidationResponse(BaseModel):
+    """Outcome of server-side plan and step validation."""
+
+    model_config = ConfigDict(frozen=True)
+
+    valid: bool
+    errors: list[str] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+    issues: list[ValidationIssue] = Field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------
@@ -265,6 +319,8 @@ class PlanVersionSummary(BaseModel):
 
     version: int
     status: PlanStatus | str
+    name: str | None = None
+    step_count: int = 0
     approved_by: str | None = None
     approved_at: str | None = None
     created_at: str
@@ -277,4 +333,159 @@ class PlanVersionsResponse(BaseModel):
 
     plan_id: str
     versions: list[PlanVersionSummary]
+
+
+# ---------------------------------------------------------------------------
+# AI Plan Generation (P5-00, P5-02)
+# ---------------------------------------------------------------------------
+
+
+class GeneratePlanRequest(BaseModel):
+    """Request body for POST /api/v1/projects/{project_id}/plans/generate."""
+
+    model_config = ConfigDict(frozen=True)
+
+    intent: str = Field(..., min_length=1, max_length=4000, description="Natural language intent or user story")
+    adapter_type: AdapterType = Field(..., description="Target adapter ('http_api' or 'web')")
+    environment_id: str | None = Field(default=None, description="Optional target environment ID")
+    spec_content: str | None = Field(default=None, max_length=16384, description="Optional API spec / criteria text")
+
+
+class BlockedStep(BaseModel):
+    """Step rejected by post-generation deterministic policy checks."""
+
+    model_config = ConfigDict(frozen=True)
+
+    step_id: str
+    action: str
+    reason: str
+    severity: str = "error"
+
+
+class GeneratePlanResponse(BaseModel):
+    """Response body for POST /api/v1/projects/{project_id}/plans/generate."""
+
+    model_config = ConfigDict(frozen=True)
+
+    status: str = "draft"
+    plan_id: str
+    name: str
+    version: int = 1
+    adapter_type: AdapterType
+    environment_id: str | None = None
+    steps: list[TestStepSchema]
+    blocked_steps: list[BlockedStep] = Field(default_factory=list)
+    requires_approval: bool = True
+    message: str = "Draft generated. Review, edit if needed, and approve before execution."
+
+
+# ---------------------------------------------------------------------------
+# Multi-Agent Orchestration & DAG Contracts
+# ---------------------------------------------------------------------------
+
+
+class TokenUsage(BaseModel):
+    """Token usage and cost telemetry for an LLM generation call."""
+
+    model_config = ConfigDict(frozen=True)
+
+    prompt_tokens: int = Field(default=0, ge=0)
+    completion_tokens: int = Field(default=0, ge=0)
+    total_tokens: int = Field(default=0, ge=0)
+    estimated_cost_usd: float | None = None
+
+
+class ContextExportDef(BaseModel):
+    """Defines a dynamic variable exported from step outputs for downstream task chaining."""
+
+    model_config = ConfigDict(frozen=True)
+
+    json_path: str = Field(..., description="JSONPath expression into step output, e.g. '$.order_id'")
+    is_secret: bool = Field(default=False, description="True if value contains sensitive token/password to be redacted")
+
+
+class DAGTaskSchema(BaseModel):
+    """A distinct task unit within a multi-agent testing mission DAG."""
+
+    model_config = ConfigDict(frozen=True)
+
+    task_id: str = Field(..., pattern=r"^[a-z0-9_]{2,64}$", description="Unique lowercase task identifier within the DAG")
+    name: str = Field(..., max_length=255, description="Human-readable task title")
+    assigned_role: AgentRole = Field(..., description="Specialist agent role executing this task")
+    adapter_type: AdapterType = Field(..., description="Target adapter (http_api or web)")
+    depends_on: list[str] = Field(default_factory=list, description="List of parent task_ids that must succeed before this task runs")
+    steps: list[TestStepSchema] = Field(default_factory=list, description="Declarative test steps for this task")
+    exports: dict[str, ContextExportDef] = Field(default_factory=dict, description="Variables exported to downstream tasks")
+    timeout_seconds: float = Field(default=60.0, ge=1.0, le=300.0)
+    requirement_refs: list[str] = Field(default_factory=list, description="Requirement keys covered by this task")
+
+
+class MissionDAGPlan(BaseModel):
+    """Complete multi-agent test plan DAG."""
+
+    model_config = ConfigDict(frozen=True)
+
+    mission_id: str
+    name: str
+    description: str | None = None
+    tasks: list[DAGTaskSchema]
+    max_parallel_tasks: int = Field(default=4, ge=1, le=10)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    requires_approval: bool = True
+
+
+class MultiAgentMissionRequest(BaseModel):
+    """Request body for multi-agent autonomous testing mission planning."""
+
+    model_config = ConfigDict(frozen=True)
+
+    requirements_content: str = Field(..., min_length=1, max_length=65536, description="Markdown specification or requirements text")
+    openapi_spec: str | None = Field(default=None, max_length=262144, description="OpenAPI JSON or YAML specification")
+    scenarios_content: str | None = Field(default=None, max_length=65536, description="Test scenarios JSON or criteria")
+    target_urls: list[str] = Field(default_factory=list, description="Target application URLs to test")
+    environment_id: str = Field(..., description="Target registered project environment ID")
+    max_parallel_tasks: int = Field(default=4, ge=1, le=10)
+
+
+class TaskExecutionOutcome(BaseModel):
+    """Outcome of an individual DAG task run."""
+
+    model_config = ConfigDict(frozen=True)
+
+    task_id: str
+    status: TaskStatus
+    step_attempts: list[dict[str, Any]] = Field(default_factory=list)
+    captured_context: dict[str, Any] = Field(default_factory=dict)
+    duration_ms: float = 0.0
+    error_message: str | None = None
+
+
+class RequirementCoverageStatus(BaseModel):
+    """Requirement traceability coverage item."""
+
+    model_config = ConfigDict(frozen=True)
+
+    requirement_id: str
+    status: str = Field(..., description="'PASSED' | 'FAILED' | 'BLOCKED' | 'UNTESTED'")
+    tested_by_tasks: list[str] = Field(default_factory=list)
+    notes: str | None = None
+
+
+class MissionEvaluationReport(BaseModel):
+    """Evidence-grounded mission evaluation synthesized by Evaluator agent."""
+
+    model_config = ConfigDict(frozen=True)
+
+    mission_id: str
+    run_id: str
+    verdict: RunStatus
+    total_tasks: int
+    passed_tasks: int
+    failed_tasks: int
+    blocked_tasks: int
+    requirement_coverage: list[RequirementCoverageStatus] = Field(default_factory=list)
+    root_cause_analysis: list[dict[str, Any]] = Field(default_factory=list)
+    executive_summary: str
+    agent_telemetry: dict[str, Any] = Field(default_factory=dict)
+
 
