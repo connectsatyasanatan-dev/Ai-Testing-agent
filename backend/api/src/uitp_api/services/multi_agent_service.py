@@ -19,7 +19,7 @@ import logging
 import uuid
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from uitp_api.exceptions import ResourceNotFoundError, ValidationError
@@ -229,7 +229,7 @@ async def plan_mission_dag(
     validate_dag_acyclicity(parsed_tasks)
 
     # 6. Persist as TestPlan (Draft) and DAG tables
-    root_plan_id = str(uuid.uuid4())
+    root_plan_id = mission_id
     test_plan = TestPlan(
         id=mission_id,
         plan_id=root_plan_id,
@@ -319,7 +319,7 @@ async def generate_mission_evaluation(
     blocked_tasks = sum(1 for a in attempts if a.status == TaskStatus.BLOCKED.value)
 
     # Query plan tasks for requirement mapping
-    plan_tasks_query = select(DAGTask).where(DAGTask.plan_id == run.plan_id)
+    plan_tasks_query = select(DAGTask).where(or_(DAGTask.plan_id == run.plan_id, DAGTask.plan_id == run.id))
     plan_tasks = (await session.execute(plan_tasks_query)).scalars().all()
     task_req_map = {t.task_id: t.requirement_refs for t in plan_tasks}
 

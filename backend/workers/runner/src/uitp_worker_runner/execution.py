@@ -252,13 +252,36 @@ async def _do_execute_run(
             await session.commit()
             return {"run_id": run.id, "status": run.status, "error": "Environment unavailable"}
 
-        # 6. Adapter Instantiation
-        adapter: Any = None
-        if plan.adapter_type == AdapterType.HTTP_API:
+        # 6. Adapter Instantiation & Execution
+        is_dag = (
+            plan.adapter_type == "multi_agent_dag"
+            or plan.adapter_type == AdapterType.MULTI_AGENT_DAG
+            or plan.adapter_type == getattr(AdapterType.MULTI_AGENT_DAG, "value", "multi_agent_dag")
+        )
+
+        if is_dag:
+            from uitp_api.services.run_service import execute_dag_plan
+
+            overall_status = await execute_dag_plan(
+                session,
+                run=run,
+                plan=plan,
+                env=env,
+                actor_id=run.requested_by,
+                worker_id=worker_id,
+                transport=transport,
+                execution_policy=execution_policy,
+                run_deadline=run_deadline,
+            )
+            steps = []
+        elif plan.adapter_type == AdapterType.HTTP_API:
             adapter = HttpApiAdapter(transport=transport, execution_policy=execution_policy)
+            steps = sorted(plan.steps, key=lambda s: s.step_order)
         elif plan.adapter_type == AdapterType.WEB:
             from uitp_adapter_web import PlaywrightAdapter
+
             adapter = PlaywrightAdapter(execution_policy=execution_policy)
+            steps = sorted(plan.steps, key=lambda s: s.step_order)
         else:
             logger.error("Unsupported adapter type '%s' for run %s", plan.adapter_type, run.id)
             run.status = RunStatus.FAILED.value
@@ -276,8 +299,6 @@ async def _do_execute_run(
             return {"run_id": run.id, "status": run.status, "error": f"Unsupported adapter '{plan.adapter_type}'"}
 
         # 7. Execute Steps with Retry Management
-        steps = sorted(plan.steps, key=lambda s: s.step_order)
-
         for step_model in steps:
             # Check external cancellation
             refreshed_run = await run_repo.get_by_id(run.id)

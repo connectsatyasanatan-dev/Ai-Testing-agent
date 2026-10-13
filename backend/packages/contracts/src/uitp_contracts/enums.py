@@ -94,6 +94,7 @@ class AdapterType(StrEnum):
 
     WEB = "web"
     HTTP_API = "http_api"
+    MULTI_AGENT_DAG = "multi_agent_dag"
     # Planned — not implemented in MVP:
     MOBILE = "mobile"
     DESKTOP = "desktop"

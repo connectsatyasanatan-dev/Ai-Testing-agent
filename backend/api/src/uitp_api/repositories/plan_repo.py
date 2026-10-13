@@ -6,7 +6,7 @@ Repository for TestPlan and TestStep persistence and atomic approval updates.
 from __future__ import annotations
 
 from datetime import datetime
-from sqlalchemy import and_, func, select, update
+from sqlalchemy import and_, func, or_, select, update
 from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -21,7 +21,7 @@ class PlanRepository(BaseRepository[TestPlan]):
         self, plan_id: str, include_archived: bool = False
     ) -> TestPlan | None:
         """Fetch the latest version of a plan with steps eagerly loaded."""
-        conditions = [TestPlan.plan_id == plan_id]
+        conditions = [or_(TestPlan.plan_id == plan_id, TestPlan.id == plan_id)]
         if not include_archived:
             conditions.append(TestPlan.status != "archived")
 
@@ -44,7 +44,7 @@ class PlanRepository(BaseRepository[TestPlan]):
             .options(selectinload(TestPlan.steps))
             .where(
                 and_(
-                    TestPlan.plan_id == plan_id,
+                    or_(TestPlan.plan_id == plan_id, TestPlan.id == plan_id),
                     TestPlan.version == version,
                 )
             )
@@ -54,7 +54,7 @@ class PlanRepository(BaseRepository[TestPlan]):
 
     async def get_max_version_number(self, plan_id: str) -> int:
         """Return highest version number recorded for plan_id."""
-        stmt = select(func.max(TestPlan.version)).where(TestPlan.plan_id == plan_id)
+        stmt = select(func.max(TestPlan.version)).where(or_(TestPlan.plan_id == plan_id, TestPlan.id == plan_id))
         result = await self._session.execute(stmt)
         val = result.scalar()
         return val if val is not None else 0
@@ -66,7 +66,7 @@ class PlanRepository(BaseRepository[TestPlan]):
         stmt = (
             select(TestPlan)
             .options(selectinload(TestPlan.steps))
-            .where(TestPlan.plan_id == plan_id)
+            .where(or_(TestPlan.plan_id == plan_id, TestPlan.id == plan_id))
             .order_by(TestPlan.version.desc())
         )
         result = await self._session.execute(stmt)
@@ -135,7 +135,7 @@ class PlanRepository(BaseRepository[TestPlan]):
             update(TestPlan)
             .where(
                 and_(
-                    TestPlan.plan_id == plan_id,
+                    or_(TestPlan.plan_id == plan_id, TestPlan.id == plan_id),
                     TestPlan.version == version,
                     TestPlan.status.in_(["draft", "pending_review"]),
                 )
@@ -159,7 +159,7 @@ class PlanRepository(BaseRepository[TestPlan]):
             update(TestPlan)
             .where(
                 and_(
-                    TestPlan.plan_id == plan_id,
+                    or_(TestPlan.plan_id == plan_id, TestPlan.id == plan_id),
                     TestPlan.version == version,
                     TestPlan.status.in_(["draft", "rejected"]),
                 )
@@ -179,7 +179,7 @@ class PlanRepository(BaseRepository[TestPlan]):
             update(TestPlan)
             .where(
                 and_(
-                    TestPlan.plan_id == plan_id,
+                    or_(TestPlan.plan_id == plan_id, TestPlan.id == plan_id),
                     TestPlan.version == version,
                     TestPlan.status.in_(["draft", "pending_review"]),
                 )
@@ -195,7 +195,7 @@ class PlanRepository(BaseRepository[TestPlan]):
         version: int | None = None,
     ) -> int:
         """Soft-delete plan version(s)."""
-        conditions = [TestPlan.plan_id == plan_id]
+        conditions = [or_(TestPlan.plan_id == plan_id, TestPlan.id == plan_id)]
         if version is not None:
             conditions.append(TestPlan.version == version)
         stmt = (
