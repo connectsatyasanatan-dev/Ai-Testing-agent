@@ -105,6 +105,7 @@ services:
       DATABASE_URL: postgresql+asyncpg://postgres:postgres@postgres:5432/uitp_dev
       UITP_REDIS_URL: redis://redis:6379/0
       UITP_ARTIFACT_STORAGE_PATH: /app/artifacts
+      PLAYWRIGHT_BROWSERS_PATH: /ms-playwright
     volumes:
       - artifact-data:/app/artifacts
     depends_on:
@@ -112,6 +113,16 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      - "5180:80"
+    depends_on:
+      - api
 
 volumes:
   postgres-data:

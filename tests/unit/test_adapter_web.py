@@ -511,3 +511,65 @@ async def test_live_browser_failed_assertion_captures_evidence() -> None:
 
         finally:
             await adapter.close_session(ctx.run_id)
+
+
+@pytest.mark.asyncio
+async def test_live_browser_set_cookies_and_storage() -> None:
+    async with run_test_web_server() as base_url:
+        validator = SSRFValidator(allow_loopback=True)
+        adapter = PlaywrightAdapter(headless=True, ssrf_validator=validator)
+        ctx = ExecutionContext(
+            run_id="run_test_cookies_storage",
+            step_id="step_cookie",
+            base_url=base_url,
+            allowlist=["127.0.0.1"],
+        )
+
+        try:
+            # First navigate to page
+            step_nav = TestStepSchema(
+                step_id="step_nav",
+                adapter_type=AdapterType.WEB,
+                action="navigate",
+                inputs={"url": f"{base_url}/login"},
+            )
+            res_nav = await adapter.execute_step(step_nav, ctx)
+            assert res_nav.status == StepStatus.PASSED
+
+            # Set cookie
+            step_cookie = TestStepSchema(
+                step_id="step_cookie",
+                adapter_type=AdapterType.WEB,
+                action="set_cookies",
+                inputs={"name": "session_token", "value": "test-jwt-token-12345", "url": base_url},
+            )
+            res_cookie = await adapter.execute_step(step_cookie, ctx)
+            assert res_cookie.status == StepStatus.PASSED
+            assert res_cookie.outputs["cookies_set"] == 1
+            assert "session_token" in res_cookie.outputs["cookie_names"]
+
+            # Set local storage
+            step_storage = TestStepSchema(
+                step_id="step_storage",
+                adapter_type=AdapterType.WEB,
+                action="set_storage",
+                inputs={"key": "auth_user", "value": "admin@example.com"},
+            )
+            res_storage = await adapter.execute_step(step_storage, ctx)
+            assert res_storage.status == StepStatus.PASSED
+            assert res_storage.outputs["storage_type"] == "localStorage"
+            assert "auth_user" in res_storage.outputs["keys_set"]
+
+            # Scroll
+            step_scroll = TestStepSchema(
+                step_id="step_scroll",
+                adapter_type=AdapterType.WEB,
+                action="scroll",
+                inputs={"direction": "bottom"},
+            )
+            res_scroll = await adapter.execute_step(step_scroll, ctx)
+            assert res_scroll.status == StepStatus.PASSED
+            assert res_scroll.outputs["scrolled"] is True
+
+        finally:
+            await adapter.close_session(ctx.run_id)

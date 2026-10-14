@@ -52,6 +52,10 @@ WEB_ALLOWED_ACTIONS = frozenset(
         "wait_for",
         "wait",
         "screenshot",
+        "set_cookies",
+        "set_storage",
+        "set_local_storage",
+        "scroll",
     }
 )
 

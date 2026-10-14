@@ -109,6 +109,10 @@ class PlaywrightAdapter(BaseAdapter):
         "wait_for",
         "wait",
         "screenshot",
+        "set_cookies",
+        "set_storage",
+        "set_local_storage",
+        "scroll",
     ]
     LIMITATIONS = [
         "Network-layer and route-layer SSRF filtering enforced on all requests",
@@ -551,6 +555,76 @@ class PlaywrightAdapter(BaseAdapter):
                 action_outputs["screenshot_artifact_id"] = artifact_id
                 action_outputs["screenshot_checksum"] = checksum
                 action_outputs["screenshot_bytes"] = png_bytes
+
+            elif action == "set_cookies":
+                raw_cookies = step.inputs.get("cookies")
+                cookies_to_add: list[dict[str, Any]] = []
+                default_target = page.url or target_url or "http://localhost"
+                if isinstance(raw_cookies, list):
+                    for c in raw_cookies:
+                        if isinstance(c, dict) and "name" in c and "value" in c:
+                            cookie_item = dict(c)
+                            if "url" not in cookie_item and "domain" not in cookie_item:
+                                cookie_item["url"] = default_target
+                            cookies_to_add.append(cookie_item)
+                elif "name" in step.inputs and "value" in step.inputs:
+                    cookie_item = {
+                        "name": str(step.inputs["name"]),
+                        "value": str(step.inputs["value"]),
+                        "url": str(step.inputs.get("url") or default_target),
+                    }
+                    if "path" in step.inputs:
+                        cookie_item["path"] = str(step.inputs["path"])
+                    cookies_to_add.append(cookie_item)
+                else:
+                    return StepExecutionResult(
+                        status=StepStatus.FAILED,
+                        error_code=ErrorCode.VALIDATION_ERROR,
+                        error_message="Action 'set_cookies' requires 'cookies' list or 'name' and 'value'.",
+                    )
+                await session.context.add_cookies(cookies_to_add)
+                action_outputs["cookies_set"] = len(cookies_to_add)
+                action_outputs["cookie_names"] = [c["name"] for c in cookies_to_add]
+
+            elif action in ("set_storage", "set_local_storage"):
+                storage_type = str(step.inputs.get("type", "localStorage")).lower()
+                raw_items = step.inputs.get("storage") or step.inputs.get("items") or step.inputs.get("entries")
+                entries: dict[str, str] = {}
+                if isinstance(raw_items, dict):
+                    entries = {str(k): str(v) for k, v in raw_items.items()}
+                elif "key" in step.inputs and "value" in step.inputs:
+                    entries[str(step.inputs["key"])] = str(step.inputs["value"])
+                else:
+                    return StepExecutionResult(
+                        status=StepStatus.FAILED,
+                        error_code=ErrorCode.VALIDATION_ERROR,
+                        error_message="Action 'set_storage' requires 'storage' dict or 'key' and 'value'.",
+                    )
+                is_session = "session" in storage_type
+                target_storage = "sessionStorage" if is_session else "localStorage"
+                for k, v in entries.items():
+                    await page.evaluate(f"([k, v]) => {target_storage}.setItem(k, v)", [k, v])
+                action_outputs["storage_type"] = target_storage
+                action_outputs["keys_set"] = list(entries.keys())
+
+            elif action == "scroll":
+                x = int(step.inputs.get("x", 0))
+                y = int(step.inputs.get("y", 500))
+                direction = str(step.inputs.get("direction", "")).lower()
+                if direction == "bottom":
+                    await page.evaluate("() => window.scrollTo(0, document.body.scrollHeight)")
+                elif direction == "top":
+                    await page.evaluate("() => window.scrollTo(0, 0)")
+                elif "selector" in step.inputs or "locator" in step.inputs:
+                    primary_spec, fallback_specs = LocatorResolver.parse_fallback_specs(step.inputs)
+                    locator, resolved_spec, is_fallback, fb_strat = await LocatorResolver.resolve_with_fallback(
+                        page, primary_spec, fallback_specs
+                    )
+                    await locator.scroll_into_view_if_needed(timeout=action_timeout_ms)
+                    action_outputs["scrolled_spec"] = resolved_spec.value
+                else:
+                    await page.evaluate("([x, y]) => window.scrollBy(x, y)", [x, y])
+                action_outputs["scrolled"] = True
 
         except AmbiguousLocatorError as exc:
             await _capture_failure_diagnostics()

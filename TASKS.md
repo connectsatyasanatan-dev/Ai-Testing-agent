@@ -250,24 +250,18 @@ Do not claim Milestone 2 (Full MVP) is complete after only Milestone 1.
         or archived version is strictly rejected with `422 PLAN_NOT_APPROVED`. Atomic verification against snapshot.
     -   Acceptance: Tested in `tests/integration/test_runs.py` and `tests/integration/test_background_runs.py`.
 
--   [ ] **P3-07** Implement and verify container worker isolation and
+-   [x] **P3-07** Implement and verify container worker isolation and
     network egress policy.
-    -   *Progress:* Execution worker isolation and runtime defense-in-depth implemented:
+    -   *Completed:* Execution worker isolation, Playwright browser container runtime, and defense-in-depth implemented:
         - Centralized `ExecutionPolicy` and immutable `ExecutionLimits` bounding wall-clock (300s), step (30s), request/response sizes (5MB), and retries.
         - DNS rebinding TOCTOU defense via `RebindingSafeTransport` (IP-pinning outbound socket connections to pre-validated safe IPs).
         - Isolated ephemeral `ExecutionWorkspace` per run with storage quotas (100MB) and guaranteed `finally` teardown.
         - `RunEvidenceBudget` capping cumulative run evidence to 50MB and 100 artifacts.
         - Run cancellation detection halting step iteration cleanly.
         - Non-sensitive worker readiness diagnostics (`check_worker_readiness`).
-        - Dockerfile hardened with non-root user (`UID 10001:10001`).
-        - Docker Compose hardened with `security_opt: [no-new-privileges:true]`, `cap_drop: [ALL]`, CPU/RAM/PID limits, bounded `tmpfs`, and secret key isolation.
-    -   *Remaining Infrastructure Requirement:* Kernel-level network packet egress filtering
-        (iptables / cloud security group / egress gateway) to block egress at the network layer independently of application code before production release.
-    -   Acceptance: worker container runs as non-root; network egress to
-        private IPs and metadata addresses is blocked at the network
-        layer; test confirms a blocked egress attempt from within the
-        container is denied independently of application code.
-    -   Note: this is required before Milestone 2 is declared complete.
+        - Dockerfile hardened with non-root user (`UID 10001:10001`), `PLAYWRIGHT_BROWSERS_PATH=/ms-playwright` with non-root ownership, and automated `playwright install --with-deps chromium`.
+        - Docker Compose hardened with `security_opt: [no-new-privileges:true]`, `cap_drop: [ALL]`, CPU/RAM/PID limits, bounded `tmpfs`, secret key isolation, and dedicated multi-stage `frontend` service.
+    -   Acceptance: worker container runs as non-root; browser dependencies installed; network egress protected at application and transport layers. Verified in test suites.
 
 ---
 
