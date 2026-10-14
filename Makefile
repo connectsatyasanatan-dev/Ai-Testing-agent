@@ -62,8 +62,8 @@ help:
 	@echo "  generate-types       Regen TS types from OpenAPI  (API must be running)"
 	@echo "  check-types-drift    Fail if committed types differ"
 	@echo ""
-	@echo "  dev-api              FastAPI on http://localhost:8000  (run in own terminal)"
-	@echo "  dev-web              Vite on   http://localhost:5173   (run in own terminal)"
+	@echo "  dev-api              FastAPI on http://localhost:8090  (run in own terminal)"
+	@echo "  dev-web              Vite on   http://localhost:5180   (run in own terminal)"
 	@echo ""
 	@echo "  db-start             docker compose up postgres -d"
 	@echo "  db-stop              docker compose down"
@@ -140,7 +140,7 @@ test-security:
 
 # ── TypeScript type generation (ADR-010) ─────────────────────────────────────
 generate-types:
-	@echo "==> Generating TypeScript types  (API must be running on :8000)"
+	@echo "==> Generating TypeScript types  (API must be running on :8090)"
 	cd $(WEB_DIR) && npm run generate-types
 
 check-types-drift:
@@ -149,11 +149,11 @@ check-types-drift:
 
 # ── Dev servers  (run in separate terminals) ──────────────────────────────────
 dev-api:
-	@echo "==> FastAPI dev server  → http://localhost:8000"
-	cd $(API_DIR) && uvicorn uitp_api.main:app --reload --host 0.0.0.0 --port 8000
+	@echo "==> FastAPI dev server  → http://localhost:8090"
+	cd $(API_DIR) && uvicorn uitp_api.main:app --reload --host 0.0.0.0 --port 8090
 
 dev-web:
-	@echo "==> Vite dev server  → http://localhost:5173"
+	@echo "==> Vite dev server  → http://localhost:5180"
 	cd $(WEB_DIR) && npm run dev
 
 # ── Infrastructure ────────────────────────────────────────────────────────────

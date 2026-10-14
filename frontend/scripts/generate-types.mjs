@@ -17,7 +17,7 @@ const outputDir  = join(__dirname, "..", "src", "types", "generated");
 const outputFile = join(outputDir, "api.d.ts");
 const schemaUrl  = process.env.API_URL
   ? `${process.env.API_URL}/openapi.json`
-  : "http://localhost:8000/openapi.json";
+  : "http://localhost:8090/openapi.json";
 
 mkdirSync(outputDir, { recursive: true });
 console.log(`Fetching schema from : ${schemaUrl}`);

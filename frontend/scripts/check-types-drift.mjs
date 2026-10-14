@@ -15,7 +15,7 @@ const committed   = join(__dirname, "..", "src", "types", "generated", "api.d.ts
 const tmp         = `${committed}.tmp`;
 const schemaUrl   = process.env.API_URL
   ? `${process.env.API_URL}/openapi.json`
-  : "http://localhost:8000/openapi.json";
+  : "http://localhost:8090/openapi.json";
 
 console.log("Checking for TypeScript type drift …");
 execSync(`npx openapi-typescript "${schemaUrl}" --output "${tmp}"`, { stdio: "inherit" });

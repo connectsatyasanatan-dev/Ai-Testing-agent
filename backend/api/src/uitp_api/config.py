@@ -54,7 +54,7 @@ class Settings(BaseSettings):
             "Generate: python -c \"import secrets; print(secrets.token_hex(32))\""
         ),
     )
-    base_url: str = "http://localhost:8000"
+    base_url: str = "http://localhost:8090"
 
     # ── Database ─────────────────────────────────────────────────────────────
     database_url: SecretStr = Field(
@@ -72,7 +72,7 @@ class Settings(BaseSettings):
     redis_url: str | None = None
 
     # ── CORS ─────────────────────────────────────────────────────────────────
-    cors_allowed_origins: list[str] = ["http://localhost:5173"]
+    cors_allowed_origins: list[str] = ["http://localhost:5180"]
 
     # ── Rate limiting ────────────────────────────────────────────────────────
     rate_limit_login: int = Field(default=10, ge=1)

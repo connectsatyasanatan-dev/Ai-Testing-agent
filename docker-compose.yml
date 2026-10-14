@@ -71,9 +71,9 @@ services:
       UITP_DATABASE_URL: postgresql+asyncpg://postgres:postgres@postgres:5432/uitp_dev
       UITP_REDIS_URL: redis://redis:6379/0
       UITP_ARTIFACT_STORAGE_PATH: /app/artifacts
-      UITP_BASE_URL: http://localhost:8000
+      UITP_BASE_URL: http://localhost:8090
     ports:
-      - "8000:8000"
+      - "8090:8000"
     volumes:
       - artifact-data:/app/artifacts
     depends_on:

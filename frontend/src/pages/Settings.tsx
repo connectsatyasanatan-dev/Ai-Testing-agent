@@ -474,7 +474,7 @@ export default function Settings() {
               <pre className={styles.snippetCode}>
 {`# Authenticate automated pipelines using Authorization: Bearer header
 curl -H "Authorization: Bearer <YOUR_API_TOKEN>" \\
-     -X POST http://localhost:8000/api/v1/plans/<PLAN_ID>/runs \\
+     -X POST http://localhost:8090/api/v1/plans/<PLAN_ID>/runs \\
      -H "Content-Type: application/json" \\
      -d '{"environment_id": "<ENV_ID>", "plan_version": 1}'`}
               </pre>
