@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { ErrorMessage } from "@/components/ui/ErrorMessage";
 import { Spinner } from "@/components/ui/Spinner";
+import { ConfirmModal } from "@/components/ui/ConfirmModal";
 import { useAuth } from "@/hooks/useAuth";
 import { useProjects } from "@/hooks/useProjects";
 import {
@@ -61,6 +62,21 @@ export default function Settings() {
   // ── Audit State ──────────────────────────────────────────────────────────────
   const [selectedAuditType, setSelectedAuditType] = useState<string>("");
   const [inspectingEvent, setInspectingEvent] = useState<AuditEventItem | null>(null);
+
+  // ── Confirmation Modal State ─────────────────────────────────────────────────
+  const [confirmDialog, setConfirmDialog] = useState<{
+    isOpen: boolean;
+    title: string;
+    message: React.ReactNode;
+    confirmLabel?: string;
+    variant?: "danger" | "warning";
+    onConfirm: () => void;
+  }>({
+    isOpen: false,
+    title: "",
+    message: "",
+    onConfirm: () => {},
+  });
 
   // ── Queries ──────────────────────────────────────────────────────────────────
   const {
@@ -332,9 +348,21 @@ export default function Settings() {
                               variant="danger"
                               size="sm"
                               onClick={() => {
-                                if (window.confirm(`Are you sure you want to remove ${m.email} from this project?`)) {
-                                  removeMemberMutation.mutate(m.user_id);
-                                }
+                                setConfirmDialog({
+                                  isOpen: true,
+                                  title: "Remove Team Member",
+                                  message: (
+                                    <span>
+                                      Are you sure you want to remove <strong style={{ color: "#f8fafc" }}>{m.email}</strong> from this project? They will immediately lose access to all project environments, plans, and test runs.
+                                    </span>
+                                  ),
+                                  confirmLabel: "Remove Member",
+                                  variant: "danger",
+                                  onConfirm: () => {
+                                    removeMemberMutation.mutate(m.user_id);
+                                    setConfirmDialog((prev) => ({ ...prev, isOpen: false }));
+                                  },
+                                });
                               }}
                               disabled={removeMemberMutation.isPending}
                             >
@@ -452,9 +480,21 @@ export default function Settings() {
                             variant="danger"
                             size="sm"
                             onClick={() => {
-                              if (window.confirm(`Revoke token '${t.name}'? Existing CI jobs will be denied.`)) {
-                                revokeTokenMutation.mutate(t.id);
-                              }
+                              setConfirmDialog({
+                                isOpen: true,
+                                title: "Revoke API Token",
+                                message: (
+                                  <span>
+                                    Revoke token <strong style={{ color: "#f8fafc" }}>'{t.name}'</strong>? Existing CI jobs and automated scripts using this token will be denied immediately.
+                                  </span>
+                                ),
+                                confirmLabel: "Revoke Token",
+                                variant: "danger",
+                                onConfirm: () => {
+                                  revokeTokenMutation.mutate(t.id);
+                                  setConfirmDialog((prev) => ({ ...prev, isOpen: false }));
+                                },
+                              });
                             }}
                             disabled={revokeTokenMutation.isPending}
                           >
@@ -714,6 +754,18 @@ curl -H "Authorization: Bearer <YOUR_API_TOKEN>" \\
             </div>
           </div>
         )}
+
+        {/* ── CONFIRMATION MODAL ────────────────────────────────────────────── */}
+        <ConfirmModal
+          isOpen={confirmDialog.isOpen}
+          title={confirmDialog.title}
+          message={confirmDialog.message}
+          confirmLabel={confirmDialog.confirmLabel}
+          variant={confirmDialog.variant}
+          isLoading={removeMemberMutation.isPending || revokeTokenMutation.isPending}
+          onConfirm={confirmDialog.onConfirm}
+          onClose={() => setConfirmDialog((prev) => ({ ...prev, isOpen: false }))}
+        />
       </div>
     </AppShell>
   );

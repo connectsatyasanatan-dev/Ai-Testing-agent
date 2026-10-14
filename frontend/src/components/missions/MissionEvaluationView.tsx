@@ -27,16 +27,13 @@ export function MissionEvaluationView({ runId, evaluation }: MissionEvaluationVi
           <div className={styles.titleArea}>
             <span style={{ fontSize: "20px" }}>{isPassing ? "🎯" : "⚠️"}</span>
             <h2 className={styles.title}>Evaluator Assessment & Verdict</h2>
-            <span
-              className={isPassing ? styles.statusPassed : styles.statusFailed}
-              style={{ fontSize: "13px", padding: "4px 10px" }}
-            >
+            <span className={isPassing ? styles.statusPassed : styles.statusFailed}>
               {verdict}
             </span>
           </div>
 
           {evaluation.is_idempotent_replay && (
-            <span style={{ fontSize: "12px", color: "var(--color-text-muted)" }}>
+            <span style={{ fontSize: "12px", color: "#94a3b8" }}>
               ⚡ Cached Replay (Idempotent)
             </span>
           )}
@@ -45,35 +42,35 @@ export function MissionEvaluationView({ runId, evaluation }: MissionEvaluationVi
         {/* Counter Tiles */}
         <div className={styles.metricsGrid}>
           <div className={styles.metricTile}>
-            <span className={styles.metricVal} style={{ color: "var(--color-text-primary)" }}>
+            <span className={styles.metricVal} style={{ color: "#f8fafc" }}>
               {evaluation.total_tasks}
             </span>
             <span className={styles.metricLabel}>Total Tasks</span>
           </div>
 
           <div className={styles.metricTile}>
-            <span className={styles.metricVal} style={{ color: "#16a34a" }}>
+            <span className={styles.metricVal} style={{ color: "#4ade80" }}>
               {evaluation.passed_tasks}
             </span>
             <span className={styles.metricLabel}>Passed</span>
           </div>
 
           <div className={styles.metricTile}>
-            <span className={styles.metricVal} style={{ color: "#dc2626" }}>
+            <span className={styles.metricVal} style={{ color: "#f87171" }}>
               {evaluation.failed_tasks}
             </span>
             <span className={styles.metricLabel}>Failed</span>
           </div>
 
           <div className={styles.metricTile}>
-            <span className={styles.metricVal} style={{ color: "#ea580c" }}>
+            <span className={styles.metricVal} style={{ color: "#fbbf24" }}>
               {evaluation.blocked_tasks}
             </span>
             <span className={styles.metricLabel}>Blocked</span>
           </div>
 
           <div className={styles.metricTile}>
-            <span className={styles.metricVal} style={{ color: "#6b7280" }}>
+            <span className={styles.metricVal} style={{ color: "#94a3b8" }}>
               {evaluation.skipped_tasks ?? 0}
             </span>
             <span className={styles.metricLabel}>Skipped</span>
@@ -82,7 +79,11 @@ export function MissionEvaluationView({ runId, evaluation }: MissionEvaluationVi
 
         {/* Executive Summary Callout */}
         {evaluation.executive_summary && (
-          <div className={styles.execSummary} role="region" aria-label="Executive Summary">
+          <div
+            className={`${styles.execSummary} ${isPassing ? styles.execSummaryPassed : styles.execSummaryFailed}`}
+            role="region"
+            aria-label="Executive Summary"
+          >
             <strong>Evaluator Assessment: </strong>
             <span>{evaluation.executive_summary}</span>
           </div>
@@ -90,22 +91,13 @@ export function MissionEvaluationView({ runId, evaluation }: MissionEvaluationVi
 
         {/* Deliverables & Exports Toolbar */}
         <div className={styles.deliverablesBar}>
-          <span style={{ fontSize: "13px", fontWeight: 600, color: "#334155" }}>
-            Exported Deliverables:
+          <span className={styles.deliverableLabel}>
+            Reported Deliverables:
           </span>
 
           <button
             type="button"
-            className="btn btn-secondary"
-            style={{
-              padding: "5px 12px",
-              fontSize: "12px",
-              fontWeight: 600,
-              backgroundColor: "#fff",
-              border: "1px solid #cbd5e1",
-              borderRadius: "6px",
-              cursor: "pointer",
-            }}
+            className={styles.deliverableBtn}
             onClick={() => setShowReportModal(true)}
             id="view-report-md-btn"
           >
@@ -114,16 +106,7 @@ export function MissionEvaluationView({ runId, evaluation }: MissionEvaluationVi
 
           <button
             type="button"
-            className="btn btn-secondary"
-            style={{
-              padding: "5px 12px",
-              fontSize: "12px",
-              fontWeight: 600,
-              backgroundColor: "#fff",
-              border: "1px solid #cbd5e1",
-              borderRadius: "6px",
-              cursor: "pointer",
-            }}
+            className={styles.deliverableBtn}
             onClick={() => setShowLogModal(true)}
             id="view-execution-log-btn"
           >
@@ -133,7 +116,7 @@ export function MissionEvaluationView({ runId, evaluation }: MissionEvaluationVi
           <a
             href={`/api/v1/runs/${runId}/export/report`}
             download={`report_${runId.slice(0, 8)}.md`}
-            style={{ fontSize: "12px", color: "var(--color-primary)", textDecoration: "none", marginLeft: "auto" }}
+            className={styles.downloadLink}
           >
             Download Markdown Report ↗
           </a>
@@ -170,7 +153,7 @@ export function MissionEvaluationView({ runId, evaluation }: MissionEvaluationVi
 
                   return (
                     <tr key={req.requirement_id}>
-                      <td style={{ fontWeight: 600, fontFamily: "var(--font-mono)" }}>
+                      <td style={{ fontWeight: 600, fontFamily: "var(--font-mono)", color: "#f8fafc" }}>
                         {req.requirement_id}
                       </td>
                       <td>
@@ -178,27 +161,18 @@ export function MissionEvaluationView({ runId, evaluation }: MissionEvaluationVi
                       </td>
                       <td>
                         {req.tested_by_tasks && req.tested_by_tasks.length > 0 ? (
-                          <div style={{ display: "flex", flexWrap: "wrap", gap: "4px" }}>
+                          <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
                             {req.tested_by_tasks.map((t) => (
-                              <span
-                                key={t}
-                                style={{
-                                  fontSize: "11px",
-                                  fontFamily: "var(--font-mono)",
-                                  backgroundColor: "#f1f5f9",
-                                  padding: "1px 5px",
-                                  borderRadius: "4px",
-                                }}
-                              >
+                              <span key={t} className={styles.taskTag}>
                                 {t}
                               </span>
                             ))}
                           </div>
                         ) : (
-                          <span style={{ color: "var(--color-text-muted)" }}>None</span>
+                          <span style={{ color: "#64748b" }}>None</span>
                         )}
                       </td>
-                      <td style={{ color: "var(--color-text-secondary)" }}>
+                      <td style={{ color: "#94a3b8" }}>
                         {req.notes || "—"}
                       </td>
                     </tr>
@@ -208,25 +182,25 @@ export function MissionEvaluationView({ runId, evaluation }: MissionEvaluationVi
             </table>
           </div>
         ) : (
-          <div style={{ color: "var(--color-text-muted)", fontSize: "13px" }}>
+          <div style={{ color: "#94a3b8", fontSize: "13px" }}>
             No declared requirements were tracked in this evaluation.
           </div>
         )}
       </div>
 
-      {/* 3. Evidence-Grounded Root Cause Analysis (if any failures / blocked tasks) */}
+      {/* 3. Evidence-Grounded Root Cause Analysis */}
       {evaluation.root_cause_analysis && evaluation.root_cause_analysis.length > 0 && (
         <div className={styles.evalCard}>
-          <h3 className={styles.title} style={{ fontSize: "16px", color: "#b91c1c" }}>
+          <h3 className={styles.title} style={{ fontSize: "16px", color: "#f87171" }}>
             Root Cause Analysis & Diagnostics ({evaluation.root_cause_analysis.length})
           </h3>
 
-          <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-3)" }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
             {evaluation.root_cause_analysis.map((rc, idx) => (
               <div key={idx} className={styles.rcaCard}>
                 <div className={styles.rcaHeader}>
-                  <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                    <strong style={{ fontSize: "14px" }}>Task: {rc.task_id}</strong>
+                  <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
+                    <strong style={{ fontSize: "14px", color: "#f1f5f9" }}>Task: {rc.task_id}</strong>
                     <span className={rc.status === "failed" ? styles.statusFailed : styles.statusBlocked}>
                       {rc.status.toUpperCase()}
                     </span>
@@ -234,9 +208,10 @@ export function MissionEvaluationView({ runId, evaluation }: MissionEvaluationVi
                       style={{
                         fontSize: "11px",
                         fontWeight: 600,
-                        backgroundColor: rc.cause_type === "confirmed" ? "#fee2e2" : "#fef3c7",
-                        color: rc.cause_type === "confirmed" ? "#991b1b" : "#92400e",
-                        padding: "1px 6px",
+                        backgroundColor: rc.cause_type === "confirmed" ? "rgba(239, 68, 68, 0.15)" : "rgba(245, 158, 11, 0.15)",
+                        color: rc.cause_type === "confirmed" ? "#fca5a5" : "#fcd34d",
+                        border: `1px solid ${rc.cause_type === "confirmed" ? "rgba(239, 68, 68, 0.3)" : "rgba(245, 158, 11, 0.3)"}`,
+                        padding: "2px 8px",
                         borderRadius: "4px",
                       }}
                     >
@@ -246,9 +221,10 @@ export function MissionEvaluationView({ runId, evaluation }: MissionEvaluationVi
                       <span
                         style={{
                           fontSize: "11px",
-                          backgroundColor: "#eff6ff",
-                          color: "#1d4ed8",
-                          padding: "1px 6px",
+                          backgroundColor: "rgba(59, 130, 246, 0.15)",
+                          color: "#93c5fd",
+                          border: "1px solid rgba(59, 130, 246, 0.3)",
+                          padding: "2px 8px",
                           borderRadius: "4px",
                         }}
                       >
@@ -261,9 +237,9 @@ export function MissionEvaluationView({ runId, evaluation }: MissionEvaluationVi
                 <div className={styles.rcaDiagnostic}>{rc.diagnostic}</div>
 
                 {rc.suggested_debugging_steps && rc.suggested_debugging_steps.length > 0 && (
-                  <div style={{ fontSize: "12px", color: "#374151" }}>
+                  <div className={styles.remediationArea}>
                     <strong>Suggested Remediation:</strong>
-                    <ul style={{ margin: "4px 0 0 16px", padding: 0 }}>
+                    <ul>
                       {rc.suggested_debugging_steps.map((step, sIdx) => (
                         <li key={sIdx}>{step}</li>
                       ))}
@@ -272,23 +248,15 @@ export function MissionEvaluationView({ runId, evaluation }: MissionEvaluationVi
                 )}
 
                 {rc.evidence_references && rc.evidence_references.length > 0 && (
-                  <div style={{ fontSize: "12px", color: "#4b5563" }}>
+                  <div className={styles.evidenceArea}>
                     <strong>Captured Evidence Artifacts: </strong>
-                    {rc.evidence_references.map((refId, rIdx) => (
-                      <span
-                        key={rIdx}
-                        style={{
-                          fontFamily: "var(--font-mono)",
-                          fontSize: "11px",
-                          backgroundColor: "#f3f4f6",
-                          padding: "1px 5px",
-                          borderRadius: "4px",
-                          marginRight: "6px",
-                        }}
-                      >
-                        {refId}
-                      </span>
-                    ))}
+                    <div>
+                      {rc.evidence_references.map((refId, rIdx) => (
+                        <span key={rIdx} className={styles.evidenceChip}>
+                          {refId}
+                        </span>
+                      ))}
+                    </div>
                   </div>
                 )}
               </div>
@@ -302,7 +270,7 @@ export function MissionEvaluationView({ runId, evaluation }: MissionEvaluationVi
         <div className={styles.modalBackdrop} role="dialog" aria-modal="true">
           <div className={styles.previewCard}>
             <div className={styles.previewHeader}>
-              <h3 style={{ margin: 0, fontSize: "16px", fontWeight: 700 }}>
+              <h3 style={{ margin: 0, fontSize: "16px", fontWeight: 700, color: "#f8fafc" }}>
                 Deliverable Preview: /output/report.md
               </h3>
               <Button variant="secondary" size="sm" onClick={() => setShowReportModal(false)}>
@@ -321,7 +289,7 @@ export function MissionEvaluationView({ runId, evaluation }: MissionEvaluationVi
         <div className={styles.modalBackdrop} role="dialog" aria-modal="true">
           <div className={styles.previewCard}>
             <div className={styles.previewHeader}>
-              <h3 style={{ margin: 0, fontSize: "16px", fontWeight: 700 }}>
+              <h3 style={{ margin: 0, fontSize: "16px", fontWeight: 700, color: "#f8fafc" }}>
                 Deliverable Preview: /output/execution_log.json
               </h3>
               <Button variant="secondary" size="sm" onClick={() => setShowLogModal(false)}>

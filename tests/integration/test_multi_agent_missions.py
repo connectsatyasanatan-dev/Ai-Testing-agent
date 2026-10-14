@@ -64,8 +64,10 @@ class TestMultiAgentMissions:
         set_ai_provider(None)
 
     @pytest.mark.asyncio
-    async def test_multi_agent_plan_503_when_no_provider(self, client: AsyncClient) -> None:
+    async def test_multi_agent_plan_503_when_no_provider(self, client: AsyncClient, monkeypatch: pytest.MonkeyPatch) -> None:
         """Returns 503 AI_PROVIDER_NOT_CONFIGURED when no AI provider is set."""
+        from uitp_api.config import get_settings
+        monkeypatch.setattr(get_settings(), "ai_provider", None)
         await _register_and_login(client, "user_multi_503@example.com")
         proj_resp = await client.post("/api/v1/projects", json={"name": "MultiAgent 503 Proj"})
         project_id = proj_resp.json()["id"]

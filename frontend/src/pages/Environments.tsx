@@ -499,7 +499,7 @@ function EnvironmentFormModal({
           </button>
         </div>
 
-        <form onSubmit={handleSubmit}>
+        <form onSubmit={handleSubmit} className={styles.modalForm}>
           <div className={styles.modalBody}>
             {apiError && <div className={styles.modalAlert}>{apiError}</div>}
 

@@ -319,12 +319,40 @@
   color: var(--color-text);
 }
 
+.modalForm {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
 .modalBody {
   padding: 1.5rem;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
   gap: 1.25rem;
+  flex: 1;
+  min-height: 0;
+}
+
+.modalBody::-webkit-scrollbar {
+  width: 8px;
+}
+
+.modalBody::-webkit-scrollbar-track {
+  background: var(--color-bg-subtle, rgba(255, 255, 255, 0.05));
+  border-radius: 4px;
+}
+
+.modalBody::-webkit-scrollbar-thumb {
+  background: var(--color-border-focus, #3b82f6);
+  border-radius: 4px;
+}
+
+.modalBody::-webkit-scrollbar-thumb:hover {
+  background: var(--color-primary, #60a5fa);
 }
 
 .formGroup {
@@ -403,6 +431,7 @@
   justify-content: flex-end;
   gap: 0.75rem;
   background: var(--color-bg-subtle);
+  flex-shrink: 0;
 }
 
 /* Alert inside modal */

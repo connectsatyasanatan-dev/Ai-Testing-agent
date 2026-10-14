@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from typing import Any, Protocol, runtime_checkable
 
 import httpx
@@ -22,6 +23,104 @@ from uitp_api.exceptions import AIProviderNotConfiguredError, ValidationError
 from uitp_contracts.plan import TokenUsage
 
 logger = logging.getLogger(__name__)
+
+
+def _repair_truncated_json(text: str) -> dict[str, Any] | None:
+    """Attempt to repair and parse a truncated JSON string by closing open quotes, brackets, and braces."""
+    if not text:
+        return None
+
+    first_brace = text.find("{")
+    if first_brace == -1:
+        return None
+    s = text[first_brace:].strip()
+
+    # Try cutting back to the last valid token / closing incomplete elements
+    for cut_idx in range(len(s), max(0, len(s) - 800), -1):
+        sub = s[:cut_idx].strip()
+        if sub.endswith(","):
+            sub = sub[:-1].strip()
+
+        # Balance unescaped double quotes
+        quotes = len(re.findall(r'(?<!\\)"', sub))
+        if quotes % 2 != 0:
+            sub += '"'
+
+        # Balance open brackets and braces
+        open_brackets = sub.count("[") - sub.count("]")
+        open_braces = sub.count("{") - sub.count("}")
+
+        if open_braces >= 0 and open_brackets >= 0:
+            closing = ("]" * open_brackets) + ("}" * open_braces)
+            candidate = sub + closing
+            try:
+                parsed = json.loads(candidate)
+                if isinstance(parsed, dict) and ("tasks" in parsed or "name" in parsed or "steps" in parsed):
+                    return parsed
+            except Exception:
+                continue
+    return None
+
+
+def _extract_json_object(raw_content: str) -> dict[str, Any]:
+    """Robustly extract and parse a JSON object from model output.
+
+    Handles:
+    - Pure JSON strings
+    - Markdown code fences (```json ... ``` or ``` ... ```)
+    - Preamble/postamble commentary text before or after JSON
+    - Trailing commas before closing braces/brackets
+    - Truncated completions closed automatically
+    """
+    if not raw_content or not raw_content.strip():
+        raise ValueError("AI provider returned empty content.")
+
+    text = raw_content.strip()
+
+    # 1. Direct json.loads
+    try:
+        parsed = json.loads(text)
+        if isinstance(parsed, dict):
+            return parsed
+    except Exception:
+        pass
+
+    # 2. Extract from markdown code fence ```json ... ``` or ``` ... ```
+    matches = re.findall(r"```(?:json)?\s*([\s\S]*?)\s*```", text, re.IGNORECASE)
+    for candidate in matches:
+        candidate_clean = candidate.strip()
+        try:
+            parsed = json.loads(candidate_clean)
+            if isinstance(parsed, dict):
+                return parsed
+        except Exception:
+            pass
+
+    # 3. Find outer-most { ... } braces
+    first_brace = text.find("{")
+    last_brace = text.rfind("}")
+    if first_brace != -1 and last_brace != -1 and last_brace > first_brace:
+        candidate = text[first_brace : last_brace + 1].strip()
+        try:
+            parsed = json.loads(candidate)
+            if isinstance(parsed, dict):
+                return parsed
+        except Exception:
+            # 4. Clean up trailing commas
+            cleaned_commas = re.sub(r",\s*([}\]])", r"\1", candidate)
+            try:
+                parsed = json.loads(cleaned_commas)
+                if isinstance(parsed, dict):
+                    return parsed
+            except Exception:
+                pass
+
+    # 5. Attempt auto-repair of truncated JSON
+    repaired = _repair_truncated_json(text)
+    if repaired is not None:
+        return repaired
+
+    raise ValueError(f"Could not extract valid JSON object from content preview: {text[:250]!r}")
 
 
 # ── AI Provider Protocol ─────────────────────────────────────────────────────
@@ -194,12 +293,14 @@ class HttpOpenAICompatibleProvider:
         base_url: str = "https://api.openai.com/v1",
         timeout_seconds: float = 30.0,
         max_tokens: int = 2048,
+        extra_payload: dict[str, Any] | None = None,
     ) -> None:
         self.api_key = api_key
         self.model = model
         self.base_url = base_url.rstrip("/")
         self.timeout_seconds = timeout_seconds
         self.max_tokens = max_tokens
+        self.extra_payload = extra_payload or {}
 
     async def generate_plan_draft(
         self,
@@ -222,6 +323,8 @@ class HttpOpenAICompatibleProvider:
             "max_tokens": self.max_tokens,
             "temperature": 0.2,
         }
+        if self.extra_payload:
+            payload.update(self.extra_payload)
 
         try:
             async with httpx.AsyncClient(timeout=self.timeout_seconds) as client:
@@ -234,22 +337,27 @@ class HttpOpenAICompatibleProvider:
             raise ValidationError("Failed to connect to AI provider.") from exc
 
         if response.status_code != 200:
-            logger.warning("AI provider returned HTTP status %d", response.status_code)
-            raise ValidationError("AI provider request failed. Please check provider status or configuration.")
+            logger.warning("AI provider returned HTTP status %d: %s", response.status_code, response.text)
+            try:
+                err_json = response.json()
+                err_detail = err_json.get("detail") or err_json.get("message") or err_json.get("error", {}).get("message") or response.text[:200]
+            except Exception:
+                err_detail = response.text[:200]
+            raise ValidationError(f"AI provider request failed (HTTP {response.status_code}): {err_detail}")
 
         try:
             data = response.json()
             choices = data.get("choices")
             if not choices or not isinstance(choices, list):
                 raise ValueError("Response missing 'choices' list")
-            raw_content = choices[0].get("message", {}).get("content", "")
-            parsed = json.loads(raw_content)
-            if not isinstance(parsed, dict):
-                raise ValueError("Parsed output is not a JSON object")
-            return parsed
+            msg = choices[0].get("message") if isinstance(choices[0], dict) else {}
+            raw_content = (msg.get("content") if isinstance(msg, dict) else "") or ""
+            if not raw_content and isinstance(msg, dict):
+                raw_content = msg.get("reasoning_content") or ""
+            return _extract_json_object(raw_content)
         except Exception as exc:
-            logger.warning("AI provider returned invalid JSON: %s", type(exc).__name__)
-            raise ValidationError("AI provider returned malformed output. Please refine your prompt.") from exc
+            logger.warning("AI provider returned invalid JSON: %s. Error: %s", type(exc).__name__, exc)
+            raise ValidationError(f"AI provider returned malformed output: {exc}. Please refine your prompt.") from exc
 
     async def complete_structured(
         self,
@@ -274,6 +382,8 @@ class HttpOpenAICompatibleProvider:
             "max_tokens": self.max_tokens,
             "temperature": temperature,
         }
+        if self.extra_payload:
+            payload.update(self.extra_payload)
 
         try:
             async with httpx.AsyncClient(timeout=self.timeout_seconds) as client:
@@ -286,18 +396,24 @@ class HttpOpenAICompatibleProvider:
             raise ValidationError("Failed to connect to AI provider.") from exc
 
         if response.status_code != 200:
-            logger.warning("AI provider returned HTTP status %d", response.status_code)
-            raise ValidationError("AI provider request failed. Please check provider status or configuration.")
+            logger.warning("AI provider returned HTTP status %d: %s", response.status_code, response.text)
+            try:
+                err_json = response.json()
+                err_detail = err_json.get("detail") or err_json.get("message") or err_json.get("error", {}).get("message") or response.text[:200]
+            except Exception:
+                err_detail = response.text[:200]
+            raise ValidationError(f"AI provider request failed (HTTP {response.status_code}): {err_detail}")
 
         try:
             data = response.json()
             choices = data.get("choices")
             if not choices or not isinstance(choices, list):
                 raise ValueError("Response missing 'choices' list")
-            raw_content = choices[0].get("message", {}).get("content", "")
-            parsed = json.loads(raw_content)
-            if not isinstance(parsed, dict):
-                raise ValueError("Parsed output is not a JSON object")
+            msg = choices[0].get("message") if isinstance(choices[0], dict) else {}
+            raw_content = (msg.get("content") if isinstance(msg, dict) else "") or ""
+            if not raw_content and isinstance(msg, dict):
+                raw_content = msg.get("reasoning_content") or ""
+            parsed = _extract_json_object(raw_content)
             usage_data = data.get("usage", {})
             usage = TokenUsage(
                 prompt_tokens=usage_data.get("prompt_tokens", 0),
@@ -306,8 +422,8 @@ class HttpOpenAICompatibleProvider:
             )
             return parsed, usage
         except Exception as exc:
-            logger.warning("AI provider returned invalid JSON: %s", type(exc).__name__)
-            raise ValidationError("AI provider returned malformed output. Please refine your prompt.") from exc
+            logger.warning("AI provider returned invalid JSON: %s. Error: %s", type(exc).__name__, exc)
+            raise ValidationError(f"AI provider returned malformed output: {exc}. Please refine your prompt.") from exc
 
 
 # ── NVIDIA Nemotron Provider ──────────────────────────────────────────────────
@@ -322,13 +438,17 @@ class NvidiaNemotronProvider(HttpOpenAICompatibleProvider):
         base_url: str = "https://integrate.api.nvidia.com/v1",
         timeout_seconds: float = 45.0,
         max_tokens: int = 4096,
+        extra_payload: dict[str, Any] | None = None,
     ) -> None:
+        if extra_payload is None:
+            extra_payload = {"chat_template_kwargs": {"enable_thinking": False}}
         super().__init__(
             api_key=api_key,
             model=model,
             base_url=base_url,
             timeout_seconds=timeout_seconds,
             max_tokens=max_tokens,
+            extra_payload=extra_payload,
         )
 
 

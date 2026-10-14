@@ -137,6 +137,7 @@ SAFETY CONSTRAINTS:
 5. If a task produces dynamic data needed downstream (such as auth token or entity id), declare it in 'exports' with json_path and is_secret.
 6. The tasks must form a strictly acyclic dependency graph (DAG).
 7. Task classifications:
+   - 'task_id': must be lowercase alphanumeric with underscores only (e.g. 'auth_api_01', 'cart_setup_02'). No hyphens or spaces.
    - 'priority': 'P0' for critical paths/core journeys; 'P1', 'P2', 'P3' for standard/broader scenarios.
    - 'is_smoke': true ONLY for P0 critical path tests; false otherwise.
    - 'is_regression': true for tests validating existing functionality across broader scenarios.
@@ -144,27 +145,71 @@ SAFETY CONSTRAINTS:
    - When an analyzed OpenAPI specification is provided in <analyzed_openapi>, ground API specialist tasks strictly in documented operations, HTTP methods, paths, parameters, and response schemas.
    - Use the candidate test intents (e.g. happy paths, required-field omission, enum validation, auth rejection) to shape your API test tasks.
    - Do not invent arbitrary undocumented API endpoints or business behavior not present in the specification.
+9. STRICTLY ALLOWED ASSERTION TYPES:
+   - For http_api: 'status_code', 'json_path_equals', 'json_path_exists', 'json_path_matches', 'json_schema', 'header_equals', 'header_exists', 'response_time_under'
+   - For web: 'url_contains', 'url_equals', 'title_contains', 'title_equals', 'text_visible', 'element_visible', 'element_hidden'
+   - Note: Do NOT output generic 'json_path'; use 'json_path_exists' (with operator 'exists') or 'json_path_equals' (with operator 'eq').
+10. MANDATORY STEP INPUTS:
+   - Every step MUST specify 'inputs' (never 'parameters').
+   - For http_api: 'inputs' MUST contain 'path' (e.g. '/health', '/api/v1/employees') or full 'url'.
+   - For web 'navigate': 'inputs' MUST contain 'url' (e.g. 'http://localhost:5173').
+   - For web 'fill': 'inputs' MUST contain 'selector' and 'value'.
+   - For web 'click': 'inputs' MUST contain 'selector'.
+11. EFFICIENCY & COMPACTNESS:
+   - Generate between 2 to 4 high-value tasks total (e.g., 1 auth/health API task, 1 CRUD API journey task, 1 UI test task).
+   - Keep each task focused with 1 to 3 essential steps.
+   - Keep names and descriptions concise to fit completion limits.
+12. REASONING CONSTRAINT:
+   - Do NOT generate lengthy chain-of-thought analysis. Keep reasoning under 100 words and produce the valid JSON object directly.
 
 OUTPUT FORMAT:
-Return strictly a valid JSON object matching this schema:
+Return strictly a valid JSON object matching this schema. Do NOT include markdown blocks or commentary outside the JSON:
 {
   "name": "Human-readable mission plan title",
   "description": "Concise summary of the test mission",
   "max_parallel_tasks": 4,
   "tasks": [
     {
-      "task_id": "setup_auth",
-      "name": "Authenticate Test User via API",
+      "task_id": "health_and_auth_api",
+      "name": "Verify Backend Health & Auth Endpoints",
       "assigned_role": "api_specialist",
       "adapter_type": "http_api",
       "depends_on": [],
       "priority": "P0",
       "is_smoke": true,
-      "is_regression": true,
-      "steps": [ ...list of TestStepSchema... ],
+      "steps": [
+        {
+          "step_id": "step_1",
+          "adapter_type": "http_api",
+          "action": "get",
+          "inputs": { "path": "/health" },
+          "assertions": [{ "type": "status_code", "operator": "eq", "value": 200 }]
+        }
+      ],
       "exports": { "auth_token": { "json_path": "$.token", "is_secret": true } },
       "timeout_seconds": 30.0,
       "requirement_refs": ["REQ-AUTH-01"]
+    },
+    {
+      "task_id": "verify_frontend_ui",
+      "name": "Verify Frontend Landing Page & Navigation",
+      "assigned_role": "ui_specialist",
+      "adapter_type": "web",
+      "depends_on": ["health_and_auth_api"],
+      "priority": "P1",
+      "is_smoke": false,
+      "steps": [
+        {
+          "step_id": "step_1",
+          "adapter_type": "web",
+          "action": "navigate",
+          "inputs": { "url": "http://localhost:5173" },
+          "assertions": [{ "type": "url_contains", "operator": "contains", "value": "5173" }]
+        }
+      ],
+      "exports": {},
+      "timeout_seconds": 30.0,
+      "requirement_refs": ["REQ-UI-01"]
     }
   ]
 }
@@ -339,10 +384,8 @@ def _build_supervisor_user_prompt(
     prompt += f"<untrusted_requirements>\n{request.requirements_content.strip()}\n</untrusted_requirements>\n"
     if openapi_analysis is not None:
         prompt += f"\n<analyzed_openapi>\n{openapi_analysis.summary_markdown}\n</analyzed_openapi>\n"
-        if request.openapi_spec:
-            prompt += f"\n<untrusted_openapi>\n{request.openapi_spec.strip()}\n</untrusted_openapi>\n"
-    elif request.openapi_spec:
-        prompt += f"\n<untrusted_openapi>\n{request.openapi_spec.strip()[:10000]}\n</untrusted_openapi>\n"
+    if request.openapi_spec:
+        prompt += f"\n<untrusted_openapi>\n{request.openapi_spec.strip()[:2000]}\n</untrusted_openapi>\n"
     if request.scenarios_content:
         prompt += f"\n<untrusted_scenarios>\n{request.scenarios_content.strip()}\n</untrusted_scenarios>\n"
     if request.target_urls:
@@ -353,6 +396,149 @@ def _build_supervisor_user_prompt(
 # ── Bounded Model Schema Validation & Repair ──────────────────────────────────
 
 MAX_MODEL_REPAIR_ATTEMPTS = 2
+
+
+def _normalize_task_dict(t_data: dict[str, Any], default_idx: int = 0) -> dict[str, Any]:
+    """Safely normalize model output variations to conform to DAGTaskSchema."""
+    import re
+
+    if not isinstance(t_data, dict):
+        return t_data
+
+    # 1. Normalize task_id (lowercase, underscores only, 2-64 chars)
+    raw_tid = str(t_data.get("task_id", "")).strip()
+    if raw_tid:
+        cleaned_tid = re.sub(r"[^a-zA-Z0-9_]", "_", raw_tid).lower().strip("_")
+        while "__" in cleaned_tid:
+            cleaned_tid = cleaned_tid.replace("__", "_")
+        if len(cleaned_tid) < 2:
+            cleaned_tid = f"task_{cleaned_tid}" if cleaned_tid else f"task_{default_idx}"
+        t_data["task_id"] = cleaned_tid[:64]
+    else:
+        t_data["task_id"] = f"task_{default_idx}"
+
+    # 2. Normalize depends_on task IDs
+    deps = t_data.get("depends_on")
+    if isinstance(deps, list):
+        normalized_deps = []
+        for d in deps:
+            if isinstance(d, str):
+                c = re.sub(r"[^a-zA-Z0-9_]", "_", d.strip()).lower().strip("_")
+                while "__" in c:
+                    c = c.replace("__", "_")
+                if c:
+                    normalized_deps.append(c[:64])
+        t_data["depends_on"] = normalized_deps
+
+    # 3. Normalize assigned_role
+    role = str(t_data.get("assigned_role", "")).lower()
+    if role in ("api", "api_test", "api_tester", "http", "http_api"):
+        t_data["assigned_role"] = "api_specialist"
+    elif role in ("ui", "ui_test", "web", "web_ui", "browser", "playwright"):
+        t_data["assigned_role"] = "ui_specialist"
+    elif role in ("supervisor", "lead"):
+        t_data["assigned_role"] = "supervisor"
+    elif role in ("evaluator", "reporter"):
+        t_data["assigned_role"] = "evaluator"
+
+    # 4. Normalize adapter_type
+    adapter = str(t_data.get("adapter_type", "")).lower()
+    if adapter in ("api", "http", "rest", "rest_api"):
+        t_data["adapter_type"] = "http_api"
+    elif adapter in ("playwright", "browser", "ui"):
+        t_data["adapter_type"] = "web"
+
+    # 5. Normalize steps, inputs, and assertions
+    steps = t_data.get("steps")
+    if isinstance(steps, list):
+        for s_idx, s in enumerate(steps):
+            if isinstance(s, dict):
+                if not s.get("step_id"):
+                    s["step_id"] = f"step_{s_idx + 1}"
+                step_adapter = str(s.get("adapter_type") or t_data.get("adapter_type") or "http_api").lower()
+                if step_adapter in ("api", "http", "rest", "rest_api"):
+                    step_adapter = "http_api"
+                elif step_adapter in ("playwright", "browser", "ui"):
+                    step_adapter = "web"
+                s["adapter_type"] = step_adapter
+
+                # Normalize action
+                action = str(s.get("action", "")).strip().lower()
+                if not action:
+                    action = "get" if step_adapter == "http_api" else "navigate"
+                s["action"] = action
+
+                # Robust inputs normalization: extract from inputs, parameters, params, args, or step top-level
+                raw_inputs = s.get("inputs")
+                if not isinstance(raw_inputs, dict):
+                    raw_inputs = {}
+
+                for alt_key in ("parameters", "params", "args", "arguments", "payload", "body", "data"):
+                    val = s.get(alt_key)
+                    if isinstance(val, dict):
+                        for k, v in val.items():
+                            if k not in raw_inputs:
+                                raw_inputs[k] = v
+                    elif val is not None and alt_key in ("payload", "body", "data"):
+                        if "json" not in raw_inputs and "data" not in raw_inputs:
+                            raw_inputs["json"] = val
+
+                # Check top-level step fields
+                for field in ("path", "url", "selector", "value", "text", "method", "headers"):
+                    if field in s and field not in raw_inputs and s[field]:
+                        raw_inputs[field] = s[field]
+
+                # Specific adapter requirements validation and fallbacks
+                if step_adapter == "http_api":
+                    if not raw_inputs.get("url") and not raw_inputs.get("path"):
+                        task_id_lower = str(t_data.get("task_id", "")).lower()
+                        if "health" in task_id_lower or "health" in action:
+                            raw_inputs["path"] = "/health"
+                        elif "auth" in task_id_lower or "login" in task_id_lower:
+                            raw_inputs["path"] = "/api/v1/auth/token" if action == "post" else "/health"
+                        elif "employee" in task_id_lower:
+                            raw_inputs["path"] = "/api/v1/employees"
+                        else:
+                            raw_inputs["path"] = "/health"
+                elif step_adapter == "web":
+                    if action == "navigate":
+                        if not raw_inputs.get("url") and not raw_inputs.get("target_url"):
+                            raw_inputs["url"] = "http://localhost:5173"
+                    elif action in ("fill", "type"):
+                        if not raw_inputs.get("selector"):
+                            raw_inputs["selector"] = "input"
+                    elif action == "click":
+                        if not raw_inputs.get("selector"):
+                            raw_inputs["selector"] = "button"
+
+                s["inputs"] = raw_inputs
+
+                assertions = s.get("assertions")
+                if isinstance(assertions, list):
+                    for a in assertions:
+                        if isinstance(a, dict):
+                            atype = str(a.get("type", "")).lower()
+                            if atype in ("json_path", "jsonpath"):
+                                op = str(a.get("operator", "")).lower()
+                                if op in ("eq", "equals", "=="):
+                                    a["type"] = "json_path_equals"
+                                elif op in ("matches", "regex"):
+                                    a["type"] = "json_path_matches"
+                                else:
+                                    a["type"] = "json_path_exists"
+                            elif atype in ("status", "statuscode"):
+                                a["type"] = "status_code"
+                            elif atype in ("header", "headers"):
+                                op = str(a.get("operator", "")).lower()
+                                a["type"] = "header_equals" if op in ("eq", "equals") else "header_exists"
+                            elif atype in ("url",):
+                                op = str(a.get("operator", "")).lower()
+                                a["type"] = "url_contains" if op in ("contains",) else "url_equals"
+                            elif atype in ("text",):
+                                a["type"] = "text_visible"
+                            elif atype in ("element",):
+                                a["type"] = "element_visible"
+    return t_data
 
 
 async def _complete_and_validate_with_bounded_repair(
@@ -422,6 +608,7 @@ async def _complete_and_validate_with_bounded_repair(
                     if not isinstance(t_data, dict):
                         validation_errors.append(f"tasks.{idx}: task must be an object.")
                         continue
+                    t_data = _normalize_task_dict(t_data, idx)
                     # Check forbidden tokens
                     for s in t_data.get("steps", []):
                         token = _contains_forbidden_tokens(s)
@@ -447,8 +634,8 @@ async def _complete_and_validate_with_bounded_repair(
             safe_feedback = (
                 "Your previous response had the following schema validation errors:\n"
                 + "\n".join(f"- {e}" for e in validation_errors[:5])
-                + "\nPlease correct these errors and return valid JSON adhering strictly to the schema. "
-                "Do not include code, explanations, or commentary."
+                + "\nPlease correct these errors and return strictly a valid JSON object adhering to the schema. "
+                "Do NOT include conversational commentary, preamble, markdown code blocks, or text outside the JSON."
             )
             logger.warning(
                 "Model output failed validation on attempt %d/%d; requesting repair:\n%s",

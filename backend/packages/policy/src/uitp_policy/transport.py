@@ -54,7 +54,9 @@ class RebindingSafeTransport(httpx.AsyncBaseTransport):
             return await self.underlying_transport.handle_async_request(request)
 
         # 2. TOCTOU DNS Rebinding Defense: Pin connection to verified IP
-        safe_ip = str(resolved_ips[0])
+        # Prefer IPv4 candidate when present to avoid ConnectError on IPv4-only local servers
+        ipv4_candidates = [ip for ip in resolved_ips if ip.version == 4]
+        safe_ip = str(ipv4_candidates[0] if ipv4_candidates else resolved_ips[0])
         parsed = urlparse(url_str)
 
         # Ensure original Host header is preserved

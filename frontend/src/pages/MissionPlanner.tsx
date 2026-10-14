@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { AppShell } from "@/components/layout/AppShell";
 import { Header } from "@/components/layout/Header";
@@ -12,6 +12,46 @@ import styles from "./MissionPlanner.module.css";
 const MAX_REQUIREMENTS_BYTES = 65536; // 64KB
 const MAX_OPENAPI_BYTES = 262144;     // 256KB
 const MAX_SCENARIOS_BYTES = 65536;    // 64KB
+
+interface DecompositionStage {
+  step: number;
+  title: string;
+  desc: string;
+  icon: string;
+}
+
+const DECOMPOSITION_STAGES: DecompositionStage[] = [
+  {
+    step: 1,
+    title: "Ingesting Specifications & Target Endpoints",
+    desc: "Parsing requirements markdown, OpenAPI contracts, and live target URLs...",
+    icon: "📄",
+  },
+  {
+    step: 2,
+    title: "Autonomous Supervisor Decomposition",
+    desc: "Multi-Agent network analyzing user journeys, endpoints, auth flows & boundaries...",
+    icon: "🧠",
+  },
+  {
+    step: 3,
+    title: "Synthesizing Execution DAG",
+    desc: "Computing topological dependencies, prerequisite chains, and parallel lanes...",
+    icon: "🕸️",
+  },
+  {
+    step: 4,
+    title: "Configuring Multi-Adapter Steps & Assertions",
+    desc: "Binding REST API, Playwright UI, and Performance assertion rules...",
+    icon: "🛡️",
+  },
+  {
+    step: 5,
+    title: "Assembling Final Autonomous Mission",
+    desc: "Validating safety guardrails, SSRF allowlists, and compiling DAG plan...",
+    icon: "⚡",
+  },
+];
 
 export default function MissionPlanner() {
   const { projectId: urlProjectId } = useParams<{ projectId?: string }>();
@@ -28,9 +68,48 @@ export default function MissionPlanner() {
   const [openapiSpec, setOpenapiSpec] = useState("");
   const [scenariosContent, setScenariosContent] = useState("");
   const [targetUrls, setTargetUrls] = useState<string[]>([""]);
-  const [maxParallelTasks, setMaxParallelTasks] = useState(4);
+  const maxParallelTasks = 4;
 
   const [validationError, setValidationError] = useState<string | null>(null);
+
+  // Loading state & step progression animation
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  const [activeStageIndex, setActiveStageIndex] = useState(0);
+
+  useEffect(() => {
+    if (!planMissionMutation.isPending) {
+      setElapsedSeconds(0);
+      setActiveStageIndex(0);
+      return;
+    }
+
+    const timerInterval = setInterval(() => {
+      setElapsedSeconds((prev) => prev + 1);
+    }, 1000);
+
+    const stageInterval = setInterval(() => {
+      setActiveStageIndex((prev) => (prev < DECOMPOSITION_STAGES.length - 1 ? prev + 1 : prev));
+    }, 2800);
+
+    return () => {
+      clearInterval(timerInterval);
+      clearInterval(stageInterval);
+    };
+  }, [planMissionMutation.isPending]);
+
+  // Auto-prefill first target URL from environment base_url
+  useEffect(() => {
+    const selectedEnvId = environmentId || envList?.items[0]?.id;
+    const currentEnv = envList?.items.find((e) => e.id === selectedEnvId);
+    if (currentEnv?.base_url) {
+      setTargetUrls((prev) => {
+        if (prev.length === 1 && !prev[0].trim()) {
+          return [currentEnv.base_url];
+        }
+        return prev;
+      });
+    }
+  }, [environmentId, envList]);
 
   // File upload handlers with client-side bounds checking
   const handleFileUpload = (
@@ -144,13 +223,16 @@ export default function MissionPlanner() {
     >
       <div className={styles.container}>
         <div className={styles.header}>
-          <div style={{ display: "flex", alignItems: "center", gap: "var(--space-2)" }}>
+          <div className={styles.breadcrumbWrapper}>
             <Link
               to={currentProjectId ? `/projects/${currentProjectId}/plans` : "/plans"}
-              style={{ fontSize: "var(--font-size-sm)", color: "var(--color-primary)" }}
+              className={styles.backLink}
             >
               ← Back to Plans
             </Link>
+            <span className={styles.badgePill}>
+              ⚡ Autonomous DAG Engine • Nemotron-3.5
+            </span>
           </div>
           <h1 className={styles.title}>Plan Autonomous Multi-Agent Mission</h1>
           <p className={styles.subtitle}>
@@ -169,15 +251,17 @@ export default function MissionPlanner() {
         )}
 
         <form className={styles.formCard} onSubmit={(e) => { void handleSubmit(e); }} noValidate>
-          {/* Section 1: Target Environment */}
+          {/* Section 1: Target Environment & Application URLs */}
           <div className={styles.section}>
-            <h2 className={styles.sectionTitle}>
-              <span>🎯</span>
-              <span>1. Target Environment</span>
-            </h2>
-            <p className={styles.sectionDesc}>
-              Select the registered project environment where API endpoints and web locators will be evaluated.
-            </p>
+            <div className={styles.sectionHeader}>
+              <h2 className={styles.sectionTitle}>
+                <span className={styles.stepNumber}>01</span>
+                <span>Target Environment & Application URLs</span>
+              </h2>
+              <p className={styles.sectionDesc}>
+                Select the project environment and specify the target application URLs to test (e.g. FastAPI backend and React frontend).
+              </p>
+            </div>
 
             <div className={styles.formGroup}>
               <label htmlFor="environment-select" className={styles.label}>
@@ -187,7 +271,17 @@ export default function MissionPlanner() {
                 id="environment-select"
                 className={styles.select}
                 value={environmentId || envList?.items[0]?.id || ""}
-                onChange={(e) => setEnvironmentId(e.target.value)}
+                onChange={(e) => {
+                  const newEnvId = e.target.value;
+                  setEnvironmentId(newEnvId);
+                  const selected = envList?.items.find((item) => item.id === newEnvId);
+                  if (selected?.base_url) {
+                    setTargetUrls((prev) => {
+                      if (prev.length <= 1) return [selected.base_url];
+                      return [selected.base_url, ...prev.slice(1)];
+                    });
+                  }
+                }}
                 disabled={isLoadingEnvs || !envList?.items?.length}
                 required
               >
@@ -204,21 +298,77 @@ export default function MissionPlanner() {
                 )}
               </select>
             </div>
+
+            {/* Target Application URLs (URL 1: FastAPI, URL 2: React) */}
+            <div className={styles.formGroup} style={{ marginTop: "0.75rem" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "0.5rem" }}>
+                <label className={styles.label}>Target Application URLs</label>
+                <span style={{ fontSize: "0.8rem", color: "var(--color-primary, #60a5fa)" }}>
+                  💡 URL 1: Backend (FastAPI :8000) • URL 2: Frontend (React :5173)
+                </span>
+              </div>
+              {targetUrls.map((url, idx) => (
+                <div key={idx} className={styles.targetUrlRow}>
+                  <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", flex: 1 }}>
+                    <span style={{
+                      fontSize: "0.78rem",
+                      fontWeight: 700,
+                      color: "#60a5fa",
+                      background: "rgba(59, 130, 246, 0.12)",
+                      border: "1px solid rgba(59, 130, 246, 0.25)",
+                      padding: "0.45rem 0.75rem",
+                      borderRadius: "6px",
+                      whiteSpace: "nowrap"
+                    }}>
+                      URL {idx + 1}
+                    </span>
+                    <input
+                      type="url"
+                      className={styles.input}
+                      placeholder={idx === 0 ? "http://localhost:8000" : "http://localhost:5173"}
+                      value={url}
+                      aria-label={`Target URL ${idx + 1}`}
+                      onChange={(e) => handleUrlChange(idx, e.target.value)}
+                    />
+                  </div>
+                  {targetUrls.length > 1 && (
+                    <button
+                      type="button"
+                      className={styles.removeBtn}
+                      onClick={() => handleRemoveUrl(idx)}
+                      aria-label={`Remove URL ${idx + 1}`}
+                    >
+                      ✕ Remove
+                    </button>
+                  )}
+                </div>
+              ))}
+              <button
+                type="button"
+                className={styles.addUrlBtn}
+                onClick={handleAddUrl}
+                id="add-target-url-btn"
+              >
+                + Add Another Target URL (e.g. React Frontend)
+              </button>
+            </div>
           </div>
 
           {/* Section 2: Requirements Specification (Markdown) */}
           <div className={styles.section}>
-            <h2 className={styles.sectionTitle}>
-              <span>📋</span>
-              <span>2. Requirements Specification (requirements.md)</span>
-            </h2>
-            <p className={styles.sectionDesc}>
-              Markdown specification describing critical user journeys, business rules, and acceptance criteria.
-            </p>
+            <div className={styles.sectionHeader}>
+              <h2 className={styles.sectionTitle}>
+                <span className={styles.stepNumber}>02</span>
+                <span>Requirements Specification (requirements.md)</span>
+              </h2>
+              <p className={styles.sectionDesc}>
+                Markdown specification describing critical user journeys, business rules, and acceptance criteria.
+              </p>
+            </div>
 
             <div className={styles.fileDropZone}>
               <div className={styles.fileInfo}>
-                <span>📄</span>
+                <span className={styles.fileIcon}>📄</span>
                 <span>Upload requirements file (.md, .txt, max 64KB)</span>
               </div>
               <label className={styles.fileUploadBtn}>
@@ -257,17 +407,19 @@ export default function MissionPlanner() {
 
           {/* Section 3: OpenAPI Specification (Optional) */}
           <div className={styles.section}>
-            <h2 className={styles.sectionTitle}>
-              <span>⚡</span>
-              <span>3. API Specification (openapi.json / yaml — Optional)</span>
-            </h2>
-            <p className={styles.sectionDesc}>
-              Enables deterministic endpoint analysis, request schema generation, and HTTP assertion mapping.
-            </p>
+            <div className={styles.sectionHeader}>
+              <h2 className={styles.sectionTitle}>
+                <span className={styles.stepNumber}>03</span>
+                <span>API Specification (openapi.json / yaml — Optional)</span>
+              </h2>
+              <p className={styles.sectionDesc}>
+                Enables deterministic endpoint analysis, request schema generation, and HTTP assertion mapping.
+              </p>
+            </div>
 
             <div className={styles.fileDropZone}>
               <div className={styles.fileInfo}>
-                <span>🔌</span>
+                <span className={styles.fileIcon}>⚡</span>
                 <span>Upload OpenAPI spec (.json, .yaml, .yml, max 256KB)</span>
               </div>
               <label className={styles.fileUploadBtn}>
@@ -305,17 +457,19 @@ export default function MissionPlanner() {
 
           {/* Section 4: Scenarios (scenarios.json — Optional) */}
           <div className={styles.section}>
-            <h2 className={styles.sectionTitle}>
-              <span>🎭</span>
-              <span>4. Test Scenarios (scenarios.json — Optional)</span>
-            </h2>
-            <p className={styles.sectionDesc}>
-              Structured user scenarios or regression flow criteria to guide task generation.
-            </p>
+            <div className={styles.sectionHeader}>
+              <h2 className={styles.sectionTitle}>
+                <span className={styles.stepNumber}>04</span>
+                <span>Test Scenarios (scenarios.json — Optional)</span>
+              </h2>
+              <p className={styles.sectionDesc}>
+                Structured user scenarios or regression flow criteria to guide task generation.
+              </p>
+            </div>
 
             <div className={styles.fileDropZone}>
               <div className={styles.fileInfo}>
-                <span>📝</span>
+                <span className={styles.fileIcon}>🎭</span>
                 <span>Upload scenarios JSON file (.json, max 64KB)</span>
               </div>
               <label className={styles.fileUploadBtn}>
@@ -348,67 +502,10 @@ export default function MissionPlanner() {
             </div>
           </div>
 
-          {/* Section 5: Target Web URLs & Orchestration Options */}
-          <div className={styles.section}>
-            <h2 className={styles.sectionTitle}>
-              <span>🌐</span>
-              <span>5. Target Web URLs & Parallelism</span>
-            </h2>
-
-            <div className={styles.formGroup}>
-              <label className={styles.label}>Target Web Application URLs</label>
-              {targetUrls.map((url, idx) => (
-                <div key={idx} className={styles.targetUrlRow}>
-                  <input
-                    type="url"
-                    className={styles.input}
-                    placeholder="https://app.example.local/login"
-                    value={url}
-                    aria-label={`Target URL ${idx + 1}`}
-                    onChange={(e) => handleUrlChange(idx, e.target.value)}
-                  />
-                  {targetUrls.length > 1 && (
-                    <button
-                      type="button"
-                      className={styles.removeBtn}
-                      onClick={() => handleRemoveUrl(idx)}
-                      aria-label={`Remove URL ${idx + 1}`}
-                    >
-                      ✕ Remove
-                    </button>
-                  )}
-                </div>
-              ))}
-              <button
-                type="button"
-                className={styles.addUrlBtn}
-                onClick={handleAddUrl}
-                id="add-target-url-btn"
-              >
-                + Add Another Target URL
-              </button>
-            </div>
-
-            <div className={styles.formGroup} style={{ maxWidth: "200px", marginTop: "var(--space-2)" }}>
-              <label htmlFor="parallel-tasks-input" className={styles.label}>
-                Max Parallel Tasks (1–10)
-              </label>
-              <input
-                id="parallel-tasks-input"
-                type="number"
-                min={1}
-                max={10}
-                className={styles.input}
-                value={maxParallelTasks}
-                onChange={(e) => setMaxParallelTasks(Number(e.target.value))}
-              />
-            </div>
-          </div>
-
           {/* Submission Bar */}
           <div className={styles.submitBar}>
             <Link to={currentProjectId ? `/projects/${currentProjectId}/plans` : "/plans"}>
-              <Button variant="secondary" type="button">
+              <Button variant="secondary" type="button" disabled={planMissionMutation.isPending}>
                 Cancel
               </Button>
             </Link>
@@ -416,6 +513,7 @@ export default function MissionPlanner() {
             <Button
               variant="primary"
               type="submit"
+              loading={planMissionMutation.isPending}
               disabled={planMissionMutation.isPending}
               id="plan-mission-submit-btn"
             >
@@ -423,6 +521,116 @@ export default function MissionPlanner() {
             </Button>
           </div>
         </form>
+
+        {/* ── High-End AI Multi-Agent Decomposition Overlay & Loader ──────── */}
+        {planMissionMutation.isPending && (
+          <div
+            className={styles.loaderOverlay}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="loader-modal-title"
+          >
+            <div className={styles.loaderCard}>
+              {/* Animated AI Agent Core Orb */}
+              <div className={styles.aiOrbWrapper}>
+                <div className={styles.aiOrbRingOuter} />
+                <div className={styles.aiOrbRingInner} />
+                <div className={styles.aiOrbCore}>
+                  <span className={styles.aiOrbIcon}>⚡</span>
+                </div>
+              </div>
+
+              {/* Title & Status Header */}
+              <div className={styles.loaderHeader}>
+                <div className={styles.aiBadgePill}>
+                  <span className={styles.pulseDot} />
+                  <span>NVIDIA Nemotron 120B • Autonomous Multi-Agent Core</span>
+                </div>
+                <h3 id="loader-modal-title" className={styles.loaderTitle}>
+                  Synthesizing Mission DAG
+                </h3>
+                <p className={styles.loaderSubtitle}>
+                  Supervisor and Specialist agents are analyzing your specifications and target environments to decompose an executable test graph.
+                </p>
+              </div>
+
+              {/* Live Target Scope Tags */}
+              {targetUrls.filter((u) => u.trim().length > 0).length > 0 && (
+                <div className={styles.loaderTargetList}>
+                  <span className={styles.targetListLabel}>Target Scope:</span>
+                  {targetUrls
+                    .filter((u) => u.trim().length > 0)
+                    .map((url, i) => (
+                      <span key={i} className={styles.targetBadge}>
+                        {url.includes("8000") ? "⚡ FastAPI: " : url.includes("5173") ? "⚛️ React: " : "🌐 "}
+                        {url}
+                      </span>
+                    ))}
+                </div>
+              )}
+
+              {/* Step Progression Ticker */}
+              <div className={styles.stepsContainer}>
+                {DECOMPOSITION_STAGES.map((stage, idx) => {
+                  const isDone = idx < activeStageIndex;
+                  const isCurrent = idx === activeStageIndex;
+                  const isUpcoming = idx > activeStageIndex;
+
+                  return (
+                    <div
+                      key={stage.step}
+                      className={`${styles.stepRow} ${
+                        isCurrent
+                          ? styles.stepRowCurrent
+                          : isDone
+                          ? styles.stepRowDone
+                          : styles.stepRowUpcoming
+                      }`}
+                    >
+                      <div className={styles.stepIndicator}>
+                        {isDone ? (
+                          <span className={styles.stepCheck}>✓</span>
+                        ) : isCurrent ? (
+                          <span className={styles.stepSpinnerMini} />
+                        ) : (
+                          <span className={styles.stepDot} />
+                        )}
+                      </div>
+                      <div className={styles.stepTextWrapper}>
+                        <div className={styles.stepTitle}>
+                          <span>{stage.title}</span>
+                          {isCurrent && <span className={styles.stepActiveBadge}>In Progress</span>}
+                        </div>
+                        <div className={styles.stepDesc}>{stage.desc}</div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Shimmer Progress Bar */}
+              <div className={styles.progressBarWrapper}>
+                <div
+                  className={styles.progressBarFill}
+                  style={{
+                    width: `${Math.min(95, ((activeStageIndex + 1) / DECOMPOSITION_STAGES.length) * 100)}%`,
+                  }}
+                />
+              </div>
+
+              {/* Footer Live Telemetry */}
+              <div className={styles.loaderFooter}>
+                <span className={styles.elapsedTime}>
+                  ⏱️ Elapsed: {String(Math.floor(elapsedSeconds / 60)).padStart(2, "0")}:
+                  {String(elapsedSeconds % 60).padStart(2, "0")}s
+                </span>
+                <span className={styles.loaderTip}>
+                  Please keep this tab open • DAG generation in progress
+                </span>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </AppShell>
   );

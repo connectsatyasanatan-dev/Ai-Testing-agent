@@ -93,15 +93,35 @@ frontend/coverage/
 # Anchor root artifacts directories so packages (e.g. backend/packages/evidence) are NOT ignored
 /artifacts/
 /evidence/
+/output/
+output/
 /tests/artifacts/
 /tests/evidence/
 /tests/output/
-/output/runs/
 /playwright-report/
 /test-results/
 /blob-report/
 /.playwright/
 /ms-playwright/
+
+# Temporary scratch & debug scripts
+/scratch/
+scratch/
+*.scratch.*
+check_db.py
+fix_dag_steps.py
+test_live_run.py
+temp_*
+tmp_*
+*.tmp
+*.bak
+
+# AI agent caches & scratchpads
+.agent/
+.agents/
+.gemini/
+.antigravity/
+brain/
 
 # Binary test outputs
 *.png

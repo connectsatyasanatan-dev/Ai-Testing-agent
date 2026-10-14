@@ -1,19 +1,21 @@
 .container {
   display: flex;
   flex-direction: column;
-  gap: var(--space-6);
+  gap: var(--space-6, 24px);
   width: 100%;
 }
 
 .evalCard {
-  background-color: var(--color-surface, #ffffff);
-  border: 1px solid var(--color-border, #e5e7eb);
+  background: rgba(15, 23, 42, 0.75);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: var(--radius-lg, 12px);
-  padding: var(--space-6);
+  padding: var(--space-6, 24px);
   display: flex;
   flex-direction: column;
-  gap: var(--space-4);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+  gap: var(--space-4, 16px);
+  box-shadow: 0 4px 20px -2px rgba(0, 0, 0, 0.5);
 }
 
 .headerRow {
@@ -21,102 +23,175 @@
   align-items: center;
   justify-content: space-between;
   flex-wrap: wrap;
-  gap: var(--space-3);
+  gap: var(--space-3, 12px);
 }
 
 .titleArea {
   display: flex;
   align-items: center;
-  gap: var(--space-3);
+  gap: var(--space-3, 12px);
 }
 
 .title {
   font-size: var(--font-size-lg, 18px);
-  font-weight: var(--font-bold, 700);
-  color: var(--color-text-primary, #111827);
+  font-weight: 700;
+  color: #f1f5f9;
   margin: 0;
+  letter-spacing: -0.01em;
 }
 
 .metricsGrid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
-  gap: var(--space-3);
+  gap: var(--space-3, 12px);
 }
 
 .metricTile {
-  background-color: var(--color-surface-subtle, #f8fafc);
-  border: 1px solid var(--color-border, #e2e8f0);
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.06);
   border-radius: var(--radius-md, 8px);
-  padding: var(--space-3);
+  padding: var(--space-3, 12px);
   display: flex;
   flex-direction: column;
   align-items: center;
   text-align: center;
+  transition: transform 0.15s ease, border-color 0.15s ease;
+}
+
+.metricTile:hover {
+  border-color: rgba(255, 255, 255, 0.12);
+  transform: translateY(-1px);
 }
 
 .metricVal {
-  font-size: var(--font-size-2xl, 24px);
-  font-weight: var(--font-bold, 700);
+  font-size: 24px;
+  font-weight: 700;
   line-height: 1;
-  margin-bottom: 4px;
+  margin-bottom: 6px;
+  font-family: var(--font-mono, monospace);
 }
 
 .metricLabel {
-  font-size: var(--font-size-xs, 12px);
-  color: var(--color-text-secondary, #64748b);
-  font-weight: 500;
+  font-size: 11px;
+  color: #94a3b8;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
 }
 
 .execSummary {
-  background-color: #f0fdfa;
-  border: 1px solid #ccfbf1;
   border-radius: var(--radius-md, 8px);
-  padding: var(--space-3) var(--space-4);
-  color: #0f766e;
-  font-size: var(--font-size-sm, 14px);
-  line-height: 1.5;
+  padding: 12px 16px;
+  font-size: 13px;
+  line-height: 1.6;
 }
 
-.execSummary strong {
-  color: #115e59;
+.execSummaryPassed {
+  background: rgba(16, 185, 129, 0.08);
+  border: 1px solid rgba(16, 185, 129, 0.25);
+  color: #6ee7b7;
+}
+
+.execSummaryPassed strong {
+  color: #34d399;
+}
+
+.execSummaryFailed {
+  background: rgba(239, 68, 68, 0.08);
+  border: 1px solid rgba(239, 68, 68, 0.25);
+  color: #fca5a5;
+}
+
+.execSummaryFailed strong {
+  color: #f87171;
 }
 
 .deliverablesBar {
   display: flex;
   align-items: center;
-  gap: var(--space-3);
+  gap: var(--space-3, 12px);
   flex-wrap: wrap;
-  padding: var(--space-3) var(--space-4);
-  background-color: #f1f5f9;
-  border: 1px solid #cbd5e1;
+  padding: 10px 16px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: var(--radius-md, 8px);
+}
+
+.deliverableLabel {
+  font-size: 12px;
+  font-weight: 600;
+  color: #94a3b8;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.deliverableBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: #e2e8f0;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.deliverableBtn:hover {
+  background: rgba(255, 255, 255, 0.12);
+  border-color: rgba(255, 255, 255, 0.25);
+  color: #ffffff;
+}
+
+.downloadLink {
+  font-size: 12px;
+  font-weight: 600;
+  color: #60a5fa;
+  text-decoration: none;
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  transition: color 0.15s ease;
+}
+
+.downloadLink:hover {
+  color: #93c5fd;
+  text-decoration: underline;
 }
 
 .tableWrapper {
   overflow-x: auto;
-  border: 1px solid var(--color-border, #e5e7eb);
+  border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: var(--radius-md, 8px);
+  background: rgba(0, 0, 0, 0.2);
 }
 
 .table {
   width: 100%;
   border-collapse: collapse;
-  font-size: var(--font-size-sm, 13px);
+  font-size: 13px;
   text-align: left;
 }
 
 .table th {
-  background-color: var(--color-surface-subtle, #f8fafc);
+  background: rgba(0, 0, 0, 0.4);
   padding: 10px 14px;
   font-weight: 600;
-  color: var(--color-text-secondary, #475569);
-  border-bottom: 1px solid var(--color-border, #e2e8f0);
+  color: #94a3b8;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
 }
 
 .table td {
-  padding: 10px 14px;
-  border-bottom: 1px solid var(--color-border-subtle, #f1f5f9);
-  color: var(--color-text-primary, #1e293b);
+  padding: 12px 14px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  color: #e2e8f0;
   vertical-align: top;
 }
 
@@ -124,14 +199,18 @@
   border-bottom: none;
 }
 
+.table tr:hover td {
+  background: rgba(255, 255, 255, 0.02);
+}
+
 .statusPassed {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  background-color: #ecfdf5;
-  color: #047857;
-  border: 1px solid #a7f3d0;
-  padding: 2px 8px;
+  background: rgba(34, 197, 94, 0.15);
+  color: #4ade80;
+  border: 1px solid rgba(74, 222, 128, 0.3);
+  padding: 3px 10px;
   border-radius: 9999px;
   font-weight: 600;
   font-size: 11px;
@@ -141,10 +220,10 @@
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  background-color: #fef2f2;
-  color: #b91c1c;
-  border: 1px solid #fecaca;
-  padding: 2px 8px;
+  background: rgba(239, 68, 68, 0.15);
+  color: #f87171;
+  border: 1px solid rgba(248, 113, 113, 0.3);
+  padding: 3px 10px;
   border-radius: 9999px;
   font-weight: 600;
   font-size: 11px;
@@ -154,10 +233,10 @@
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  background-color: #fff7ed;
-  color: #c2410c;
-  border: 1px solid #fed7aa;
-  padding: 2px 8px;
+  background: rgba(245, 158, 11, 0.15);
+  color: #fbbf24;
+  border: 1px solid rgba(251, 191, 36, 0.3);
+  padding: 3px 10px;
   border-radius: 9999px;
   font-weight: 600;
   font-size: 11px;
@@ -167,79 +246,139 @@
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  background-color: #f1f5f9;
-  color: #64748b;
-  border: 1px solid #cbd5e1;
-  padding: 2px 8px;
+  background: rgba(148, 163, 184, 0.12);
+  color: #94a3b8;
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  padding: 3px 10px;
   border-radius: 9999px;
   font-weight: 600;
   font-size: 11px;
 }
 
+.taskTag {
+  font-size: 11px;
+  font-family: var(--font-mono, monospace);
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: #93c5fd;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
 .rcaCard {
-  background-color: #fff;
-  border: 1px solid #f87171;
+  background: rgba(239, 68, 68, 0.05);
+  border: 1px solid rgba(239, 68, 68, 0.25);
   border-radius: var(--radius-md, 8px);
-  padding: var(--space-4);
+  padding: var(--space-4, 16px);
   display: flex;
   flex-direction: column;
-  gap: var(--space-2);
+  gap: var(--space-3, 12px);
 }
 
 .rcaHeader {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: var(--space-2);
+  gap: var(--space-2, 8px);
+  flex-wrap: wrap;
 }
 
 .rcaDiagnostic {
   font-family: var(--font-mono, monospace);
-  font-size: var(--font-size-xs, 12px);
-  background-color: #fef2f2;
-  color: #991b1b;
-  padding: var(--space-2) var(--space-3);
-  border-radius: var(--radius-sm, 6px);
+  font-size: 12px;
+  background: rgba(0, 0, 0, 0.45);
+  color: #fca5a5;
+  border: 1px solid rgba(239, 68, 68, 0.25);
+  padding: 10px 14px;
+  border-radius: 6px;
   white-space: pre-wrap;
   word-break: break-all;
+  line-height: 1.5;
+}
+
+.remediationArea {
+  font-size: 12px;
+  color: #cbd5e1;
+}
+
+.remediationArea strong {
+  color: #f1f5f9;
+}
+
+.remediationArea ul {
+  margin: 6px 0 0 16px;
+  padding: 0;
+  color: #94a3b8;
+}
+
+.remediationArea li {
+  margin-bottom: 4px;
+}
+
+.evidenceArea {
+  font-size: 12px;
+  color: #94a3b8;
+}
+
+.evidenceArea strong {
+  color: #e2e8f0;
+}
+
+.evidenceChip {
+  font-family: var(--font-mono, monospace);
+  font-size: 11px;
+  background: rgba(59, 130, 246, 0.12);
+  color: #93c5fd;
+  border: 1px solid rgba(59, 130, 246, 0.25);
+  padding: 2px 6px;
+  border-radius: 4px;
+  margin-right: 6px;
+  display: inline-block;
+  margin-top: 4px;
 }
 
 .modalBackdrop {
   position: fixed;
   inset: 0;
-  background-color: rgba(0, 0, 0, 0.6);
+  background: rgba(0, 0, 0, 0.8);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 60;
-  padding: var(--space-4);
+  z-index: 100;
+  padding: var(--space-4, 16px);
 }
 
 .previewCard {
-  background-color: #ffffff;
+  background: #0f172a;
+  border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: var(--radius-lg, 12px);
   width: 100%;
-  max-width: 800px;
+  max-width: 850px;
   max-height: 85vh;
   display: flex;
   flex-direction: column;
-  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.7);
+  overflow: hidden;
 }
 
 .previewHeader {
-  padding: var(--space-4) var(--space-6);
-  border-bottom: 1px solid var(--color-border, #e5e7eb);
+  padding: 16px 20px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
   display: flex;
   align-items: center;
   justify-content: space-between;
+  background: rgba(255, 255, 255, 0.02);
 }
 
 .previewBody {
-  padding: var(--space-6);
+  padding: 20px;
   overflow-y: auto;
   font-family: var(--font-mono, monospace);
   font-size: 13px;
   line-height: 1.6;
   white-space: pre-wrap;
-  background-color: #f8fafc;
+  background: #0a0f1d;
+  color: #e2e8f0;
 }

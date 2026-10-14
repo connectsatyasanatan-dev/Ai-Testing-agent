@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { ErrorMessage } from "@/components/ui/ErrorMessage";
 import { Spinner } from "@/components/ui/Spinner";
+import { ConfirmModal } from "@/components/ui/ConfirmModal";
 import {
   useRun,
   useRunArtifact,
@@ -127,13 +128,15 @@ export default function RunDetail() {
 
   const projectId = run?.project_id;
   const [isCancelling, setIsCancelling] = useState(false);
+  const [isCancelConfirmOpen, setIsCancelConfirmOpen] = useState(false);
 
   const handleCancel = async () => {
-    if (!run || !window.confirm("Are you sure you want to cancel this test run?")) return;
+    if (!run) return;
     setIsCancelling(true);
     try {
       await cancelRun(run.id);
       void refetch();
+      setIsCancelConfirmOpen(false);
     } catch (err) {
       alert(err instanceof Error ? err.message : "Failed to cancel run.");
     } finally {
@@ -199,7 +202,7 @@ export default function RunDetail() {
             <Button
               variant="danger"
               size="sm"
-              onClick={() => void handleCancel()}
+              onClick={() => setIsCancelConfirmOpen(true)}
               loading={isCancelling}
               disabled={isCancelling}
             >
@@ -814,6 +817,22 @@ export default function RunDetail() {
             </div>
           </div>
         )}
+
+        {/* Cancel Run Confirmation Dialog */}
+        <ConfirmModal
+          isOpen={isCancelConfirmOpen}
+          title="Cancel Test Execution"
+          message={
+            <span>
+              Are you sure you want to abort test run <strong style={{ color: "#f8fafc" }}>{run?.id}</strong>? Active adapter jobs will be immediately terminated.
+            </span>
+          }
+          confirmLabel="Abort Run"
+          variant="danger"
+          isLoading={isCancelling}
+          onConfirm={() => void handleCancel()}
+          onClose={() => setIsCancelConfirmOpen(false)}
+        />
       </div>
     </AppShell>
   );

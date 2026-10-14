@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { AppShell } from "@/components/layout/AppShell";
 import { Header } from "@/components/layout/Header";
@@ -24,14 +24,14 @@ export default function MissionDetail() {
   const navigate = useNavigate();
 
   const { data: projectList } = useProjects();
-  const currentProjectId = urlProjectId || projectList?.items[0]?.id || "";
+  const { data: planRecord, isLoading: isLoadingPlan } = usePlan(missionId);
+  const currentProjectId = urlProjectId || planRecord?.project_id || projectList?.items[0]?.id || "";
 
   const { user } = useAuth();
-  const { data: envList } = useEnvironments(currentProjectId);
+  const { data: envList, isLoading: isLoadingEnvs } = useEnvironments(currentProjectId);
 
   const { data: missionPlan, isLoading: isLoadingDAG, isError: isDAGError, error: dagError, refetch: refetchDAG } =
     useMissionDAG(missionId);
-  const { data: planRecord, isLoading: isLoadingPlan } = usePlan(missionId);
 
   const approveMutation = useApproveMission(missionId);
   const createRunMutation = useCreateRun(missionId ?? "");
@@ -41,6 +41,12 @@ export default function MissionDetail() {
   const [selectedEnvId, setSelectedEnvId] = useState("");
   const [selectedSuite, setSelectedSuite] = useState<SuiteType>("all");
   const [runDispatchError, setRunDispatchError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!selectedEnvId && envList?.items && envList.items.length > 0) {
+      setSelectedEnvId(envList.items[0].id);
+    }
+  }, [envList, selectedEnvId]);
 
   const isApproved = planRecord?.status === "approved";
   const isDraft = planRecord?.status === "draft" || !isApproved;
@@ -123,7 +129,7 @@ export default function MissionDetail() {
               <div style={{ marginBottom: "var(--space-1)" }}>
                 <Link
                   to={currentProjectId ? `/projects/${currentProjectId}/plans` : "/plans"}
-                  style={{ fontSize: "var(--font-size-xs)", color: "var(--color-primary)", textDecoration: "none" }}
+                  className={styles.backLink}
                 >
                   ← Back to Plans
                 </Link>
@@ -139,7 +145,7 @@ export default function MissionDetail() {
               <p className={styles.description}>
                 {missionPlan.description || "Autonomous multi-agent testing mission DAG."}
                 {user && (
-                  <span style={{ display: "block", marginTop: "4px", fontSize: "12px", opacity: 0.8 }}>
+                  <span className={styles.operatorText}>
                     Current operator: <strong>{user.email}</strong>
                   </span>
                 )}
@@ -204,7 +210,7 @@ export default function MissionDetail() {
           <div className={styles.metaBar}>
             <div className={styles.metaItem}>
               <span>Mission ID:</span>
-              <strong style={{ fontFamily: "var(--font-mono)" }}>{missionPlan.mission_id}</strong>
+              <strong className={styles.missionIdCode}>{missionPlan.mission_id}</strong>
             </div>
 
             <div className={styles.metaItem}>
@@ -256,28 +262,30 @@ export default function MissionDetail() {
               <div>
                 <label
                   htmlFor="run-env-select"
-                  style={{ display: "block", fontSize: "13px", fontWeight: 600, marginBottom: "4px" }}
+                  style={{ display: "block", fontSize: "13px", fontWeight: 600, marginBottom: "6px", color: "#e2e8f0" }}
                 >
                   Target Environment:
                 </label>
-                <select
-                  id="run-env-select"
-                  value={selectedEnvId || envList?.items[0]?.id || ""}
-                  onChange={(e) => setSelectedEnvId(e.target.value)}
-                  style={{
-                    width: "100%",
-                    padding: "8px 12px",
-                    borderRadius: "6px",
-                    border: "1px solid #d1d5db",
-                    fontSize: "14px",
-                  }}
-                >
-                  {envList?.items?.map((env) => (
-                    <option key={env.id} value={env.id}>
-                      {env.name} ({env.base_url})
-                    </option>
-                  ))}
-                </select>
+                {isLoadingEnvs ? (
+                  <div style={{ fontSize: "13px", color: "#94a3b8" }}>Loading environments...</div>
+                ) : !envList?.items || envList.items.length === 0 ? (
+                  <div style={{ fontSize: "13px", color: "#f87171", background: "rgba(239, 68, 68, 0.1)", padding: "10px", borderRadius: "8px", border: "1px solid rgba(239, 68, 68, 0.2)" }}>
+                    ⚠️ No environments configured for this project. Please create an environment first.
+                  </div>
+                ) : (
+                  <select
+                    id="run-env-select"
+                    className={styles.selectDark}
+                    value={selectedEnvId || envList.items[0].id}
+                    onChange={(e) => setSelectedEnvId(e.target.value)}
+                  >
+                    {envList.items.map((env) => (
+                      <option key={env.id} value={env.id}>
+                        {env.name} ({env.base_url})
+                      </option>
+                    ))}
+                  </select>
+                )}
               </div>
 
               <div>
