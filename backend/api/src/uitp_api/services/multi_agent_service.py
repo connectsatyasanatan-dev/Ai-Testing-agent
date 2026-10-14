@@ -32,7 +32,7 @@ from uitp_api.repositories.project_repo import ProjectRepository
 from uitp_api.services import audit_service
 from uitp_api.services.ai_plan_service import _contains_forbidden_tokens
 from uitp_api.services.ai_provider import AIProvider, get_ai_provider
-from uitp_contracts.enums import AdapterType, AgentRole, AuditEventType, RunStatus, TaskStatus
+from uitp_contracts.enums import AdapterType, AgentRole, AuditEventType, RunStatus, TaskPriority, TaskStatus
 from uitp_contracts.plan import (
     DAGTaskSchema,
     MissionDAGPlan,
@@ -136,6 +136,14 @@ SAFETY CONSTRAINTS:
 4. Define explicit 'depends_on' edges for tasks that require prior state (e.g., UI tests depending on API test user creation).
 5. If a task produces dynamic data needed downstream (such as auth token or entity id), declare it in 'exports' with json_path and is_secret.
 6. The tasks must form a strictly acyclic dependency graph (DAG).
+7. Task classifications:
+   - 'priority': 'P0' for critical paths/core journeys; 'P1', 'P2', 'P3' for standard/broader scenarios.
+   - 'is_smoke': true ONLY for P0 critical path tests; false otherwise.
+   - 'is_regression': true for tests validating existing functionality across broader scenarios.
+8. Grounding with OpenAPI specifications:
+   - When an analyzed OpenAPI specification is provided in <analyzed_openapi>, ground API specialist tasks strictly in documented operations, HTTP methods, paths, parameters, and response schemas.
+   - Use the candidate test intents (e.g. happy paths, required-field omission, enum validation, auth rejection) to shape your API test tasks.
+   - Do not invent arbitrary undocumented API endpoints or business behavior not present in the specification.
 
 OUTPUT FORMAT:
 Return strictly a valid JSON object matching this schema:
@@ -150,6 +158,9 @@ Return strictly a valid JSON object matching this schema:
       "assigned_role": "api_specialist",
       "adapter_type": "http_api",
       "depends_on": [],
+      "priority": "P0",
+      "is_smoke": true,
+      "is_regression": true,
       "steps": [ ...list of TestStepSchema... ],
       "exports": { "auth_token": { "json_path": "$.token", "is_secret": true } },
       "timeout_seconds": 30.0,
@@ -160,16 +171,300 @@ Return strictly a valid JSON object matching this schema:
 """
 
 
-def _build_supervisor_user_prompt(request: MultiAgentMissionRequest) -> str:
+def extract_requirement_priorities(
+    requirements_content: str | None,
+    scenarios_content: str | None = None,
+) -> dict[str, TaskPriority]:
+    """Deterministically parse requirement IDs and explicit priority/criticality metadata.
+
+    Rules:
+      - P0 / Critical core journeys -> TaskPriority.P0
+      - P1 / High priority -> TaskPriority.P1
+      - P2 / Medium -> TaskPriority.P2
+      - P3 / Low -> TaskPriority.P3
+      - Missing or omitted priority -> TaskPriority.P1 (safe non-P0 default)
+    """
+    import re
+    req_priorities: dict[str, TaskPriority] = {}
+
+    def _parse_priority_text(text: str) -> TaskPriority | None:
+        upper = text.upper()
+        if re.search(r"\b(P0|CRITICAL)\b", upper):
+            return TaskPriority.P0
+        if re.search(r"\b(P1|HIGH)\b", upper):
+            return TaskPriority.P1
+        if re.search(r"\b(P2|MEDIUM)\b", upper):
+            return TaskPriority.P2
+        if re.search(r"\b(P3|LOW)\b", upper):
+            return TaskPriority.P3
+        return None
+
+    if requirements_content:
+        for line in requirements_content.splitlines():
+            clean_line = line.strip()
+            if not clean_line:
+                continue
+            req_matches = re.findall(r"\b([A-Za-z0-9_-]*REQ[A-Za-z0-9_-]+)\b", clean_line, re.IGNORECASE)
+            if not req_matches:
+                req_matches = re.findall(r"\[([A-Za-z0-9_-]+)\]", clean_line)
+
+            line_pri = _parse_priority_text(clean_line)
+            for raw_req in req_matches:
+                req_id = raw_req.strip("[]")
+                if req_id.upper() in ("P0", "P1", "P2", "P3", "CRITICAL", "HIGH", "MEDIUM", "LOW"):
+                    continue
+                if line_pri is not None:
+                    if req_id not in req_priorities or line_pri == TaskPriority.P0:
+                        req_priorities[req_id] = line_pri
+                elif req_id not in req_priorities:
+                    req_priorities[req_id] = TaskPriority.P1
+
+    if scenarios_content:
+        try:
+            data = json.loads(scenarios_content)
+            items = data if isinstance(data, list) else data.get("scenarios", [])
+            if isinstance(items, list):
+                for item in items:
+                    if not isinstance(item, dict):
+                        continue
+                    scen_id = item.get("id") or item.get("scenario_id")
+                    raw_pri = str(item.get("priority", "")).upper()
+                    raw_crit = str(item.get("criticality", "")).upper()
+                    is_smoke = bool(item.get("is_smoke", False))
+
+                    item_pri: TaskPriority = TaskPriority.P1
+                    if is_smoke or "P0" in raw_pri or "CRITICAL" in raw_crit:
+                        item_pri = TaskPriority.P0
+                    elif "P2" in raw_pri or "MEDIUM" in raw_crit:
+                        item_pri = TaskPriority.P2
+                    elif "P3" in raw_pri or "LOW" in raw_crit:
+                        item_pri = TaskPriority.P3
+                    elif "P1" in raw_pri or "HIGH" in raw_crit:
+                        item_pri = TaskPriority.P1
+
+                    if scen_id:
+                        req_priorities[str(scen_id)] = item_pri
+
+                    refs = item.get("requirement_refs") or item.get("requirements") or []
+                    if isinstance(refs, list):
+                        for r in refs:
+                            r_str = str(r)
+                            if item_pri == TaskPriority.P0 or r_str not in req_priorities:
+                                req_priorities[r_str] = item_pri
+        except Exception:
+            for line in scenarios_content.splitlines():
+                clean_line = line.strip()
+                if not clean_line:
+                    continue
+                line_pri = _parse_priority_text(clean_line)
+                matches = re.findall(r"\b([A-Za-z0-9_-]*(?:REQ|SCN)[A-Za-z0-9_-]+)\b", clean_line, re.IGNORECASE)
+                for m in matches:
+                    if line_pri is not None:
+                        if m not in req_priorities or line_pri == TaskPriority.P0:
+                            req_priorities[m] = line_pri
+                    elif m not in req_priorities:
+                        req_priorities[m] = TaskPriority.P1
+
+    return req_priorities
+
+
+def reconcile_and_validate_task_classifications(
+    tasks: list[DAGTaskSchema],
+    req_priorities: dict[str, TaskPriority],
+) -> list[DAGTaskSchema]:
+    """Deterministically reconcile task classifications against source requirement priorities.
+
+    Rules:
+      1. Priority derivation:
+         - If any referenced requirement is P0 -> Task priority is P0.
+         - If all referenced requirements are non-P0 -> Task inherits the highest priority (e.g. P1 > P2 > P3).
+         - Missing or omitted requirement priority defaults deterministically to P1.
+      2. Smoke eligibility:
+         - A task is smoke-eligible (is_smoke = True) ONLY if its verified priority is P0.
+         - Do NOT infer that a test is P0 only because its title or name contains 'smoke'.
+         - Model-proposed escalations to P0 or is_smoke for non-P0 requirements are rejected/downgraded.
+      3. Mixed journeys:
+         - If one task references both smoke-critical (P0) and non-critical (P1/P2) requirements,
+           the presence of the P0 requirement marks the task P0 (is_smoke=True).
+         - Upstream setup tasks needed by P0 tests will execute as prerequisites in smoke runs.
+      4. Regression eligibility:
+         - Tests that validate requirements across scenarios are regression-eligible (is_regression=True).
+    """
+    reconciled_tasks: list[DAGTaskSchema] = []
+    for task in tasks:
+        ref_priorities: list[TaskPriority] = []
+        for ref in task.requirement_refs:
+            if ref in req_priorities:
+                ref_priorities.append(req_priorities[ref])
+            else:
+                ref_priorities.append(TaskPriority.P1)
+
+        if any(p == TaskPriority.P0 for p in ref_priorities):
+            derived_priority = TaskPriority.P0
+        elif ref_priorities:
+            derived_priority = min(ref_priorities, key=lambda p: p.value)
+        else:
+            model_pri = getattr(task, "priority", TaskPriority.P1)
+            if model_pri == TaskPriority.P0:
+                logger.warning(
+                    "Task '%s' proposed as P0 without explicit P0 source requirement. Downgrading to P1.",
+                    task.task_id,
+                )
+                derived_priority = TaskPriority.P1
+            elif isinstance(model_pri, TaskPriority):
+                derived_priority = model_pri
+            else:
+                derived_priority = TaskPriority.P1
+
+        is_smoke = (derived_priority == TaskPriority.P0)
+        is_regression = getattr(task, "is_regression", True)
+
+        updated_task = task.model_copy(
+            update={
+                "priority": derived_priority,
+                "is_smoke": is_smoke,
+                "is_regression": is_regression,
+            }
+        )
+        reconciled_tasks.append(updated_task)
+
+    return reconciled_tasks
+
+
+def _build_supervisor_user_prompt(
+    request: MultiAgentMissionRequest,
+    openapi_analysis: Any | None = None,
+) -> str:
     prompt = "Decompose the following application specification into a multi-agent testing DAG plan.\n\n"
     prompt += f"<untrusted_requirements>\n{request.requirements_content.strip()}\n</untrusted_requirements>\n"
-    if request.openapi_spec:
+    if openapi_analysis is not None:
+        prompt += f"\n<analyzed_openapi>\n{openapi_analysis.summary_markdown}\n</analyzed_openapi>\n"
+        if request.openapi_spec:
+            prompt += f"\n<untrusted_openapi>\n{request.openapi_spec.strip()}\n</untrusted_openapi>\n"
+    elif request.openapi_spec:
         prompt += f"\n<untrusted_openapi>\n{request.openapi_spec.strip()[:10000]}\n</untrusted_openapi>\n"
     if request.scenarios_content:
         prompt += f"\n<untrusted_scenarios>\n{request.scenarios_content.strip()}\n</untrusted_scenarios>\n"
     if request.target_urls:
         prompt += f"\nTarget URLs: {', '.join(request.target_urls)}\n"
     return prompt
+
+
+# ── Bounded Model Schema Validation & Repair ──────────────────────────────────
+
+MAX_MODEL_REPAIR_ATTEMPTS = 2
+
+
+async def _complete_and_validate_with_bounded_repair(
+    provider: AIProvider,
+    system_prompt: str,
+    initial_user_prompt: str,
+    max_repairs: int = MAX_MODEL_REPAIR_ATTEMPTS,
+) -> tuple[dict[str, Any], list[DAGTaskSchema], TokenUsage]:
+    """Execute LLM call with bounded schema validation repair feedback.
+
+    Guarantees:
+    - Never leaks application secrets, credentials, or user data into repair prompts.
+    - Max 2 repair attempts (3 total calls).
+    - If all attempts fail, raises ValidationError with safe structured diagnostic.
+    - Never executes arbitrary model code.
+    - Never silently converts invalid output into a successful plan.
+    """
+    total_usage = TokenUsage()
+    current_prompt = initial_user_prompt
+
+    for attempt in range(max_repairs + 1):
+        if hasattr(provider, "complete_structured"):
+            raw_output, usage = await provider.complete_structured(
+                system_prompt=system_prompt,
+                user_prompt=current_prompt,
+            )
+            total_usage = TokenUsage(
+                prompt_tokens=total_usage.prompt_tokens + usage.prompt_tokens,
+                completion_tokens=total_usage.completion_tokens + usage.completion_tokens,
+                total_tokens=total_usage.total_tokens + usage.total_tokens,
+            )
+        else:
+            raw_output = await provider.generate_plan_draft(
+                system_prompt=system_prompt,
+                user_prompt=current_prompt,
+            )
+            usage = TokenUsage()
+
+        validation_errors: list[str] = []
+        parsed_tasks: list[DAGTaskSchema] = []
+
+        if not isinstance(raw_output, dict):
+            validation_errors.append("Output must be a valid JSON object.")
+        else:
+            raw_tasks = raw_output.get("tasks")
+            if not isinstance(raw_tasks, list) or len(raw_tasks) == 0:
+                steps = raw_output.get("steps")
+                if isinstance(steps, list) and len(steps) > 0:
+                    raw_tasks = [
+                        {
+                            "task_id": "task_default_api",
+                            "name": raw_output.get("name", "Default Multi-Agent Task"),
+                            "assigned_role": "api_specialist",
+                            "adapter_type": "http_api",
+                            "depends_on": [],
+                            "steps": steps,
+                            "exports": {},
+                            "timeout_seconds": 60.0,
+                            "requirement_refs": ["REQ-BASE"],
+                        }
+                    ]
+                else:
+                    validation_errors.append("Field 'tasks' is required and must be a non-empty list of task objects.")
+
+            if isinstance(raw_tasks, list):
+                for idx, t_data in enumerate(raw_tasks):
+                    if not isinstance(t_data, dict):
+                        validation_errors.append(f"tasks.{idx}: task must be an object.")
+                        continue
+                    # Check forbidden tokens
+                    for s in t_data.get("steps", []):
+                        token = _contains_forbidden_tokens(s)
+                        if token:
+                            validation_errors.append(f"tasks.{idx}: step contains forbidden code execution token '{token}'.")
+
+                    try:
+                        parsed_tasks.append(DAGTaskSchema.model_validate(t_data))
+                    except Exception as exc:
+                        if hasattr(exc, "errors"):
+                            for err in exc.errors():
+                                loc = ".".join(str(p) for p in err.get("loc", []))
+                                msg = err.get("msg", "invalid field")
+                                validation_errors.append(f"tasks.{idx}.{loc}: {msg}")
+                        else:
+                            validation_errors.append(f"tasks.{idx}: {exc}")
+
+        if not validation_errors:
+            return raw_output, parsed_tasks, total_usage
+
+        # If invalid and attempts remain, build safe repair prompt
+        if attempt < max_repairs:
+            safe_feedback = (
+                "Your previous response had the following schema validation errors:\n"
+                + "\n".join(f"- {e}" for e in validation_errors[:5])
+                + "\nPlease correct these errors and return valid JSON adhering strictly to the schema. "
+                "Do not include code, explanations, or commentary."
+            )
+            logger.warning(
+                "Model output failed validation on attempt %d/%d; requesting repair:\n%s",
+                attempt + 1,
+                max_repairs + 1,
+                safe_feedback,
+            )
+            current_prompt = f"{initial_user_prompt}\n\n<validation_feedback>\n{safe_feedback}\n</validation_feedback>"
+        else:
+            error_summary = "; ".join(validation_errors[:4])
+            logger.error("Model output repair exhausted after %d attempts: %s", max_repairs + 1, error_summary)
+            raise ValidationError(
+                f"Model output schema validation failed after {max_repairs + 1} attempts. Diagnostics: {error_summary}"
+            )
+
+    raise ValidationError("Model output validation failed.")
 
 
 # ── Mission DAG Planning & Persistence Service ────────────────────────────────
@@ -202,62 +497,38 @@ async def plan_mission_dag(
     if env is None or env.project_id != project_id or env.status == "archived":
         raise ResourceNotFoundError("Target environment not found.")
 
-    # 3. Model completion call
+    # 3. Deterministic OpenAPI analysis if specification provided
+    openapi_analysis = None
+    if request.openapi_spec:
+        from uitp_api.services.openapi_service import analyze_openapi_specification
+        openapi_analysis = analyze_openapi_specification(request.openapi_spec)
+
+    # 4. Model completion call with bounded schema repair
     if provider is None:
         provider = get_ai_provider()
 
     system_prompt = _build_supervisor_system_prompt()
-    user_prompt = _build_supervisor_user_prompt(request)
+    user_prompt = _build_supervisor_user_prompt(request, openapi_analysis=openapi_analysis)
 
-    if hasattr(provider, "complete_structured"):
-        raw_output, usage = await provider.complete_structured(
-            system_prompt=system_prompt,
-            user_prompt=user_prompt,
-        )
-    else:
-        raw_output = await provider.generate_plan_draft(
-            system_prompt=system_prompt,
-            user_prompt=user_prompt,
-        )
-        usage = TokenUsage()
-
-    # 4. Parse into MissionDAGPlan
+    raw_output, parsed_tasks, usage = await _complete_and_validate_with_bounded_repair(
+        provider=provider,
+        system_prompt=system_prompt,
+        initial_user_prompt=user_prompt,
+    )
     mission_id = str(uuid.uuid4())
-    raw_tasks = raw_output.get("tasks", [])
-    if not isinstance(raw_tasks, list) or len(raw_tasks) == 0:
-        # Provide default structured task if model returned flat steps
-        steps = raw_output.get("steps", [])
-        raw_tasks = [
-            {
-                "task_id": "task_default_api",
-                "name": raw_output.get("name", "Default Multi-Agent Task"),
-                "assigned_role": "api_specialist",
-                "adapter_type": "http_api",
-                "depends_on": [],
-                "steps": steps,
-                "exports": {},
-                "timeout_seconds": 60.0,
-                "requirement_refs": ["REQ-BASE"],
-            }
-        ]
 
-    parsed_tasks: list[DAGTaskSchema] = []
-    for t_data in raw_tasks:
-        # Validate steps for forbidden code tokens
-        for s in t_data.get("steps", []):
-            token = _contains_forbidden_tokens(s)
-            if token:
-                raise ValidationError(f"Task step contains forbidden code execution token: '{token}'")
-        try:
-            parsed_tasks.append(DAGTaskSchema.model_validate(t_data))
-        except Exception as exc:
-            raise ValidationError(f"Invalid task schema generated: {exc}")
+    # 5. Extract requirement priorities and reconcile task classifications deterministically
+    req_priorities = extract_requirement_priorities(
+        request.requirements_content,
+        request.scenarios_content,
+    )
+    parsed_tasks = reconcile_and_validate_task_classifications(parsed_tasks, req_priorities)
 
-    # 5. Validate DAG acyclicity and context export declarations
+    # 6. Validate DAG acyclicity and context export declarations
     validate_dag_acyclicity(parsed_tasks)
     validate_dag_context_declarations(parsed_tasks)
 
-    # 6. Persist as TestPlan (Draft) and DAG tables
+    # 7. Persist as TestPlan (Draft) and DAG tables
     root_plan_id = mission_id
     test_plan = TestPlan(
         id=mission_id,
@@ -276,6 +547,7 @@ async def plan_mission_dag(
 
     # Persist dag_tasks and dag_dependencies
     for task in parsed_tasks:
+        priority_val = task.priority.value if hasattr(task.priority, "value") else str(task.priority)
         db_task = DAGTask(
             id=str(uuid.uuid4()),
             plan_id=test_plan.id,
@@ -287,6 +559,9 @@ async def plan_mission_dag(
             exports={k: v.model_dump() for k, v in task.exports.items()},
             timeout_seconds=task.timeout_seconds,
             requirement_refs=task.requirement_refs,
+            priority=priority_val,
+            is_smoke=task.is_smoke,
+            is_regression=task.is_regression,
         )
         session.add(db_task)
 
@@ -334,63 +609,5 @@ async def generate_mission_evaluation(
     actor_id: str,
 ) -> MissionEvaluationReport:
     """Evaluator agent synthesizes requirement coverage and evidence-based failure root cause."""
-    run = await session.get(Run, run_id)
-    if run is None:
-        raise ResourceNotFoundError("Run not found.")
-
-    # Query DAG task attempts
-    attempts_query = select(DAGTaskAttempt).where(DAGTaskAttempt.run_id == run_id)
-    attempts = (await session.execute(attempts_query)).scalars().all()
-
-    total_tasks = len(attempts)
-    passed_tasks = sum(1 for a in attempts if a.status == TaskStatus.PASSED.value)
-    failed_tasks = sum(1 for a in attempts if a.status == TaskStatus.FAILED.value)
-    blocked_tasks = sum(1 for a in attempts if a.status == TaskStatus.BLOCKED.value)
-
-    # Query plan tasks for requirement mapping
-    plan_tasks_query = select(DAGTask).where(or_(DAGTask.plan_id == run.plan_id, DAGTask.plan_id == run.id))
-    plan_tasks = (await session.execute(plan_tasks_query)).scalars().all()
-    task_req_map = {t.task_id: t.requirement_refs for t in plan_tasks}
-
-    req_coverage: list[RequirementCoverageStatus] = []
-    for task_id, reqs in task_req_map.items():
-        task_att = next((a for a in attempts if a.task_id == task_id), None)
-        status_str = "PASSED" if task_att and task_att.status == "passed" else ("FAILED" if task_att and task_att.status == "failed" else "BLOCKED")
-        for req in reqs:
-            req_coverage.append(
-                RequirementCoverageStatus(
-                    requirement_id=req,
-                    status=status_str,
-                    tested_by_tasks=[task_id],
-                )
-            )
-
-    overall_verdict = RunStatus(run.status)
-
-    root_causes: list[dict[str, Any]] = []
-    for a in attempts:
-        if a.status in ("failed", "blocked"):
-            root_causes.append({
-                "task_id": a.task_id,
-                "status": a.status,
-                "diagnostic": a.error_message or "Deterministic assertion failure or policy block",
-            })
-
-    exec_summary = (
-        f"Mission evaluation complete. {passed_tasks}/{total_tasks} tasks passed. "
-        f"Overall verdict: {overall_verdict.value.upper()}."
-    )
-
-    return MissionEvaluationReport(
-        mission_id=run.plan_id,
-        run_id=run.id,
-        verdict=overall_verdict,
-        total_tasks=total_tasks,
-        passed_tasks=passed_tasks,
-        failed_tasks=failed_tasks,
-        blocked_tasks=blocked_tasks,
-        requirement_coverage=req_coverage,
-        root_cause_analysis=root_causes,
-        executive_summary=exec_summary,
-        agent_telemetry={"status": run.status, "duration_s": (run.finished_at - run.started_at).total_seconds() if run.started_at and run.finished_at else 0},
-    )
+    from uitp_api.services.evaluation_service import generate_mission_evaluation as _eval_svc_gen
+    return await _eval_svc_gen(session, run_id=run_id, actor_id=actor_id)

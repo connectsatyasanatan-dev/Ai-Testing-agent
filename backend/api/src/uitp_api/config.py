@@ -66,6 +66,7 @@ class Settings(BaseSettings):
     artifact_storage_path: str = "./artifacts"
     artifact_retention_days: int = Field(default=30, ge=1)
     artifact_max_size_bytes: int = Field(default=10 * 1024 * 1024, ge=1)
+    export_output_dir: str = "./output"
 
     # ── Queue (Milestone 2 — not required for Milestone 1) ───────────────────
     redis_url: str | None = None

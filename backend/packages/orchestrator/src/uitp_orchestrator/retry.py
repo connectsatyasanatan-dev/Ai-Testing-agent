@@ -39,6 +39,27 @@ INFRASTRUCTURE_ERROR_CODES: frozenset[str] = frozenset(
 )
 
 
+# Permanent error codes that must NEVER be retried
+PERMANENT_ERROR_CODES: frozenset[str] = frozenset(
+    {
+        ErrorCode.VALIDATION_ERROR.value,
+        ErrorCode.UNSUPPORTED_ACTION.value,
+        ErrorCode.POLICY_BLOCKED.value,
+        ErrorCode.TARGET_NOT_ALLOWLISTED.value,
+        ErrorCode.ASSERTION_FAILED.value,
+        ErrorCode.PLAN_NOT_APPROVED.value,
+        ErrorCode.AUTHENTICATION_FAILED.value,
+        ErrorCode.PERMISSION_DENIED.value,
+        ErrorCode.RESOURCE_NOT_FOUND.value,
+        ErrorCode.CONFLICT.value,
+        "ASSERTION_FAILED",
+        "VALIDATION_ERROR",
+        "UNSUPPORTED_ACTION",
+        "POLICY_BLOCKED",
+    }
+)
+
+
 @dataclass(frozen=True)
 class RetryDecision:
     """Result of evaluating whether a failed step attempt should be retried."""
@@ -58,6 +79,7 @@ class RetryManager:
         current_attempt: int,
         status: StepStatus | str,
         error_code: ErrorCode | str | None = None,
+        status_code: int | None = None,
     ) -> RetryDecision:
         """Determine if a failed step execution should be retried.
 
@@ -66,6 +88,7 @@ class RetryManager:
             current_attempt: 1-indexed count of the attempt just completed.
             status: Execution status of the attempt.
             error_code: Optional structured error code returned by adapter.
+            status_code: Optional HTTP response status code.
 
         Returns:
             RetryDecision indicating whether to retry, the reason, and backoff delay.
@@ -79,47 +102,69 @@ class RetryManager:
                 reason=f"Step ended in non-retryable status '{step_status.value}'.",
             )
 
-        # 2. NON-IDEMPOTENT GUARD: Never retry non-idempotent operations
-        if step.idempotency_class == IdempotencyClass.NON_IDEMPOTENT:
-            logger.warning(
-                "Step '%s' has idempotency_class=non_idempotent. Retries are strictly prohibited.",
-                step.step_id,
-            )
+        # 2. Permanent validation or assertion errors are NEVER retried
+        code_str = str(error_code) if error_code is not None else None
+        if code_str and (code_str in PERMANENT_ERROR_CODES or "assertion" in code_str.lower()):
             return RetryDecision(
                 should_retry=False,
-                reason="Non-idempotent step action prohibited from automated retries.",
+                reason=f"Permanent failure '{code_str}' is non-retryable and not categorized as a transient infrastructure error.",
             )
 
-        # 3. Check attempt limit from policy
-        policy = step.retry_policy or RetryPolicySchema()
-        max_attempts = min(policy.max_attempts, ABSOLUTE_MAX_ATTEMPTS)
+        # 3. Permanent HTTP status codes (4xx except transient 429) are never retried
+        if status_code is not None and 400 <= status_code < 500 and status_code != 429:
+            return RetryDecision(
+                should_retry=False,
+                reason=f"Permanent client error HTTP {status_code} is non-retryable.",
+            )
 
+        # 4. NON-IDEMPOTENT GUARD: Never retry non-idempotent operations without explicit opt-in
+        policy = step.retry_policy or RetryPolicySchema()
+        if step.idempotency_class == IdempotencyClass.NON_IDEMPOTENT:
+            if not getattr(policy, "allow_non_idempotent_retry", False):
+                logger.warning(
+                    "Step '%s' has idempotency_class=non_idempotent without allow_non_idempotent_retry. Retries prohibited.",
+                    step.step_id,
+                )
+                return RetryDecision(
+                    should_retry=False,
+                    reason="Non-idempotent step action prohibited from automated retries without explicit allow_non_idempotent_retry.",
+                )
+
+        # 5. Check global attempt limit ceiling
+        max_attempts = min(policy.max_attempts, ABSOLUTE_MAX_ATTEMPTS)
         if current_attempt >= max_attempts:
             return RetryDecision(
                 should_retry=False,
                 reason=f"Exceeded maximum attempt limit of {max_attempts} (attempt {current_attempt}).",
             )
 
-        # 4. Only infrastructure failures are retryable
-        is_infra_error = False
-        if error_code is not None:
-            code_str = str(error_code)
-            is_infra_error = (
-                error_code in INFRASTRUCTURE_ERROR_CODES
-                or code_str in INFRASTRUCTURE_ERROR_CODES
+        # 6. Check if transient infrastructure failure or retryable HTTP status
+        is_transient = False
+        if code_str is not None:
+            is_transient = (
+                code_str in INFRASTRUCTURE_ERROR_CODES
                 or "timeout" in code_str.lower()
                 or "network" in code_str.lower()
+                or "connection" in code_str.lower()
             )
 
-        if not is_infra_error:
+        if status_code is not None:
+            if status_code in (502, 503, 504, 429):
+                is_transient = True
+            elif hasattr(policy, "retryable_status_codes") and status_code in policy.retryable_status_codes:
+                is_transient = True
+
+        if not is_transient:
             return RetryDecision(
                 should_retry=False,
                 reason="Failure was not categorized as a transient infrastructure error.",
             )
 
-        # 5. Compute backoff delay
-        delay = getattr(policy, "backoff_seconds", 1.0)
-        bounded_delay = min(max(0.1, float(delay)), 30.0)
+        # 7. Compute bounded backoff delay with exponential factor
+        base_delay = getattr(policy, "backoff_seconds", 1.0)
+        coef = getattr(policy, "backoff_coefficient", 1.5)
+        raw_delay = base_delay * (coef ** max(0, current_attempt - 1))
+        bounded_delay = min(max(0.1, float(raw_delay)), 30.0)
 
         logger.info(
             "Scheduling retry for step '%s' (attempt %d/%d) after %.2fs delay.",
@@ -131,6 +176,6 @@ class RetryManager:
 
         return RetryDecision(
             should_retry=True,
-            reason=f"Transient infrastructure error on {step.idempotency_class.value} step.",
+            reason=f"Transient failure (error={code_str or status_code}) on {step.idempotency_class.value} step.",
             delay_seconds=bounded_delay,
         )

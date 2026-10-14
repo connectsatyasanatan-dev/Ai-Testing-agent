@@ -26,6 +26,7 @@ from uitp_api.models.user import User
 from uitp_api.repositories.project_repo import ProjectRepository
 from uitp_api.services import audit_service, multi_agent_service
 from uitp_contracts.enums import AuditEventType
+from uitp_contracts.openapi import AnalyzeOpenAPIRequest, OpenAPIAnalysisResult
 from uitp_contracts.plan import (
     DAGTaskSchema,
     MissionDAGPlan,
@@ -54,6 +55,27 @@ async def plan_multi_agent_mission(
         actor_id=current_user.id,
         request=request_body,
     )
+
+
+@project_missions_router.post("/analyze-openapi", response_model=OpenAPIAnalysisResult)
+async def analyze_openapi(
+    project_id: str,
+    request_body: AnalyzeOpenAPIRequest,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_async_session),
+) -> OpenAPIAnalysisResult:
+    """Deterministic OpenAPI 3.x analysis and test candidate extraction without LLM generation."""
+    project_repo = ProjectRepository(session)
+    project = await project_repo.get_by_id(project_id)
+    if project is None or project.status == "archived":
+        raise ResourceNotFoundError("Project not found.")
+
+    membership = await project_repo.get_membership(project_id, current_user.id)
+    if membership is None:
+        raise ResourceNotFoundError("Project not found.")
+
+    from uitp_api.services.openapi_service import analyze_openapi_specification
+    return analyze_openapi_specification(request_body.openapi_spec)
 
 
 @missions_router.get("/{mission_id}/dag", response_model=MissionDAGPlan)

@@ -16,7 +16,7 @@ import re
 from dataclasses import dataclass
 from typing import Any
 
-from uitp_adapter_web.exceptions import InvalidLocatorError
+from uitp_adapter_web.exceptions import AmbiguousLocatorError, InvalidLocatorError
 
 logger = logging.getLogger(__name__)
 
@@ -206,3 +206,128 @@ class LocatorResolver:
 
         # Default strategy: CSS
         return page.locator(spec.value)
+
+    @classmethod
+    def parse_fallback_specs(cls, inputs: dict[str, Any]) -> tuple[LocatorSpec, list[LocatorSpec]]:
+        """Extract primary locator and ordered conservative fallback candidates from inputs.
+
+        Precedence for fallback ranking:
+          1. Explicit 'fallbacks' list in inputs
+          2. test_id (highest stability)
+          3. role (accessible semantic name)
+          4. label (form accessibility label)
+          5. placeholder
+          6. text (visible string)
+          7. css (DOM selector)
+        """
+        primary = cls.parse_spec(inputs)
+        fallbacks: list[LocatorSpec] = []
+        seen = {(primary.strategy, primary.value, primary.name)}
+
+        # 1. Parse explicit fallbacks if provided
+        explicit_fbs = inputs.get("fallbacks")
+        if isinstance(explicit_fbs, list):
+            for fb in explicit_fbs:
+                if isinstance(fb, dict):
+                    try:
+                        if "strategy" in fb:
+                            spec = cls.parse_spec({"locator": fb})
+                        else:
+                            spec = cls.parse_spec(fb)
+                        key = (spec.strategy, spec.value, spec.name)
+                        if key not in seen:
+                            seen.add(key)
+                            fallbacks.append(spec)
+                    except Exception as exc:
+                        logger.warning("Ignoring invalid explicit fallback spec %s: %s", fb, exc)
+
+        # 2. Extract implicit fallbacks from alternative keys provided in inputs
+        for strat in ("test_id", "role", "label", "placeholder", "text", "css"):
+            if strat == primary.strategy:
+                continue
+            spec_candidate: LocatorSpec | None = None
+            try:
+                if strat == "test_id" and ("test_id" in inputs or "data_testid" in inputs):
+                    spec_candidate = cls.parse_spec({"test_id": inputs.get("test_id") or inputs.get("data_testid")})
+                elif strat == "role" and "role" in inputs:
+                    spec_candidate = cls.parse_spec({"role": inputs["role"], "name": inputs.get("name") or inputs.get("role_name")})
+                elif strat == "label" and "label" in inputs:
+                    spec_candidate = cls.parse_spec({"label": inputs["label"]})
+                elif strat == "placeholder" and "placeholder" in inputs:
+                    spec_candidate = cls.parse_spec({"placeholder": inputs["placeholder"]})
+                elif strat == "text" and "text" in inputs:
+                    spec_candidate = cls.parse_spec({"text": inputs["text"]})
+                elif strat == "css" and "css" in inputs:
+                    spec_candidate = cls.parse_spec({"css": inputs["css"]})
+            except Exception:
+                spec_candidate = None
+
+            if spec_candidate is not None:
+                key = (spec_candidate.strategy, spec_candidate.value, spec_candidate.name)
+                if key not in seen:
+                    seen.add(key)
+                    fallbacks.append(spec_candidate)
+
+        # Bound maximum fallbacks to 3 to prevent unbounded traversal
+        return primary, fallbacks[:3]
+
+    @classmethod
+    async def resolve_with_fallback(
+        cls,
+        page: Any,
+        primary_spec: LocatorSpec,
+        fallback_specs: list[LocatorSpec],
+    ) -> tuple[Any, LocatorSpec, bool, str | None]:
+        """Resolve locator with conservative fallback and unambiguous match validation.
+
+        Returns:
+            (locator, resolved_spec, is_fallback, fallback_strategy_name)
+
+        Raises:
+            AmbiguousLocatorError: If a locator matches multiple elements.
+        """
+        primary_loc = cls.resolve(page, primary_spec)
+
+        try:
+            primary_count = await primary_loc.count()
+        except Exception:
+            primary_count = 0
+
+        if primary_count == 1:
+            return primary_loc, primary_spec, False, None
+
+        if primary_count > 1:
+            raise AmbiguousLocatorError(
+                f"Primary locator '{primary_spec.strategy}:{primary_spec.value}' matched {primary_count} elements. "
+                "Unambiguous match is required to prevent unintended side effects.",
+                selector=primary_spec.value,
+                match_count=primary_count,
+            )
+
+        # primary_count == 0: primary failed in a recoverable way. Try conservative fallbacks.
+        for fb_spec in fallback_specs:
+            fb_loc = cls.resolve(page, fb_spec)
+            try:
+                fb_count = await fb_loc.count()
+            except Exception:
+                fb_count = 0
+
+            if fb_count == 1:
+                logger.info(
+                    "Primary locator '%s:%s' failed (0 matches); successfully recovered using fallback '%s:%s'",
+                    primary_spec.strategy,
+                    primary_spec.value,
+                    fb_spec.strategy,
+                    fb_spec.value,
+                )
+                return fb_loc, fb_spec, True, fb_spec.strategy
+            elif fb_count > 1:
+                logger.warning(
+                    "Fallback locator '%s:%s' matched %d elements (ambiguous); skipping.",
+                    fb_spec.strategy,
+                    fb_spec.value,
+                    fb_count,
+                )
+
+        # If fallbacks exhausted or none succeeded, return primary to proceed with standard timeout/failure reporting
+        return primary_loc, primary_spec, False, None

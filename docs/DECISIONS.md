@@ -243,8 +243,122 @@ prevents SSRF, DNS rebinding TOCTOU attacks, disk space exhaustion, and containe
 - Tasks must declare explicit dependency edges if they intend to share context; hidden coupling is blocked.
 - Secret context variables cannot be retrieved in plaintext from the database after run completion.
 
+## ADR-018 --- Evidence-Based Execution Log and Final Report Export
+
+**Status:** Accepted\
+**Decision:**
+1. **Authoritative Persistence:** Export generation draws strictly from real, persisted execution database records (`Run`, `DAGTask`, `DAGTaskAttempt`, `StepAttempt`, `EvidenceArtifact`, `RunEvent`), never fabricated data or transient unpersisted state.
+2. **Dual-Path Collision Safety:** Output files are written to both a collision-safe per-run directory (`output/runs/<run_id>/execution_log.json` and `output/runs/<run_id>/report.md`) and the deliverable root paths (`output/execution_log.json` and `output/report.md`). Concurrent runs cannot overwrite each other's historical records.
+3. **Atomic Write Strategy:** All generated JSON and Markdown deliverables and copied evidence artifacts are written to temporary files (`<name>.tmp.<uuid>`) with explicit flush and `fsync`, followed by atomic replacement (`os.replace`). Exporter interruptions or crashes never leave corrupt or partially-written files.
+4. **Strict Secret Redaction:** Exported payloads, headers, context, and timeline events undergo multi-pass sanitization via `RedactionEngine` and `redact_sensitive_values`. Credentials, tokens, and authorization headers are replaced with `"[REDACTED]"`.
+5. **Evidence Grounding & Uncertainty Classification:** Root-cause diagnostics in both `execution_log.json` and `report.md` are derived directly from actual assertion results, HTTP status codes, schema validation failures, or exception traces. If telemetry is inconclusive, the report explicitly emits `[INSUFFICIENT_EVIDENCE]` rather than inferring hypothetical causes.
+6. **Requirement Traceability Mapping:** Requirements are mapped to verifying tasks and evaluated against actual outcomes (`PASSED`, `FAILED`, `BLOCKED`, `UNTESTED`).
+**Reason:** Fulfills assignment deliverable requirements (`/output/execution_log.json`, `/output/report.md`, and failure screenshots) with enterprise-grade integrity, tenant isolation, and verifiable evidence.\
+**Trade-offs & Constraints:**
+- Copying screenshots into export directories consumes disk space bounded by the execution evidence budget.
+- Root path files (`/output/execution_log.json`) reflect the most recently executed run.
+
+## ADR-019 --- Requirement-Driven Smoke and Regression Test Selection
+
+**Status:** Accepted\
+**Decision:**
+1. **Source Requirements Authoritative Priority:** Task priority (`P0`, `P1`, `P2`, `P3`), smoke eligibility (`is_smoke`), and regression eligibility (`is_regression`) are deterministically derived from explicit priority and criticality tags in `requirements.md` and `scenarios.json`. Missing priorities predictably default to `P1` (non-smoke).
+2. **Rejection of Title-Based Escalations:** Tasks titled or named containing words like 'smoke' are NOT granted P0 status or smoke eligibility without explicit P0 source requirements. AI model-proposed classifications are reconciled against source requirements and deterministically corrected or downgraded.
+3. **Prerequisite Dependency Closure Invariant:** When executing a subset (`suite_type="smoke"` or `"regression"`), transitive upstream dependencies outside the target subset are automatically resolved as `prerequisites`. Dependencies are never silently omitted, guaranteeing runtime context variable resolution without broken dependencies.
+4. **Pruning & Traceability Separation:** Tasks outside the targets and prerequisites closure are marked with `TaskStatus.SKIPPED`, emitted as `DAGTaskAttempt(status="skipped")` and `RunEvent(event_type="task_skipped")`. In reports and the Requirement Traceability Matrix, skipped tasks are marked `UNTESTED` with finding `'Excluded from <suite> suite execution'`, maintaining full audit traceability without obscuring untested scope.
+5. **Full Backwards Compatibility:** Existing plans and single-plan runs lacking priority fields default cleanly to `priority=P1`, `is_smoke=False`, `is_regression=True`, executing in full suite mode by default.
+**Reason:** Ensures automated smoke testing for critical P0 paths and dynamic regression selection that reliably reflects requirement metadata while preserving dependency integrity and secret-safety.\
+**Trade-offs & Constraints:**
+- Smoke runs may execute non-smoke prerequisite tasks (e.g. database seeding, user authentication setup) necessary to enable downstream P0 tests.
+
+## ADR-020 --- Deterministic OpenAPI Analysis for API Test Planning
+
+**Status:** Accepted\
+**Decision:**
+1. **Deterministic Parser and Pre-Validation Gate:** OpenAPI specifications (JSON or YAML) are parsed and normalized deterministically before calling any LLM. Malformed syntax, missing version definitions, unsupported versions (< 3.0, Swagger 2.0), and specs exceeding size limits (256 KB) are rejected immediately with HTTP 422 `VALIDATION_ERROR`.
+2. **SSRF Defense via External Reference Rejection:** In compliance with platform security invariants, external `$ref` pointers (e.g. `http://...`, `https://...`, `file://...`) are prohibited by security policy to prevent server-side request forgery and credential exfiltration. Only local JSON pointers (`#/components/schemas/...`, `#/paths/...`) are resolved.
+3. **Circular & Deep Reference Safety:** Local schema references are traversed with RFC 6901 decoding and bounded recursion limits (max depth 20) with visited pointer tracking to prevent infinite loops on recursive schemas.
+4. **Structured Token-Efficient Normalization:** OpenAPI specs are normalized into typed Pydantic contracts (`NormalizedOpenAPISpec`, `NormalizedOperation`, `OpenAPIRequestBody`, `OpenAPIResponse`, `OpenAPIParameter`). Rather than unparsed, truncated text dumps, the supervisor prompt receives structured Markdown summaries (`<analyzed_openapi>`) detailing operations, methods, auth requirements, parameters, schemas, and candidate test intents without silent semantic truncation.
+5. **Grounded Test Candidate Generation:** Structured test candidates are generated deterministically across categories:
+   - `POSITIVE_HAPPY_PATH`: Documented 2xx status codes and response schema validations.
+   - `REQUIRED_FIELD_VALIDATION`: Negative test cases systematically omitting required request body fields or query parameters.
+   - `BOUNDARY_VALIDATION`: Testing invalid enum values and boundary limits.
+   - `DOCUMENTED_ERROR`: Tests targeting documented 4xx codes (e.g. 404 for item IDs).
+   - `SECURITY_AUTH`: Tests calling authenticated endpoints without credentials expecting HTTP 401.
+   - `LIFECYCLE_SEQUENCE`: Detecting CRUD resource collections and item endpoints.
+6. **Explicit Uncertainty Labeling:** Any candidate expectation not strictly defined in the specification is flagged with `is_inferred = True` and listed in `unresolved_expectations`. The parser never invents hypothetical business rules absent from the spec.
+7. **No Direct Execution:** The parser and candidate generator perform no HTTP requests and bypass no target allowlists or approval gates.
+**Reason:** Makes OpenAPI-driven test generation structured, reliable, and grounded while defending against prompt-injection, SSRF, and model hallucination.\
+**Trade-offs & Constraints:**
+- Specifications using external multi-file `$ref` must be bundled into self-contained OpenAPI 3.x documents before submission.
+- Complex nested polymorphic schemas (`oneOf`, `anyOf`) are shallowly merged; complete schema validation is enforced at test execution time via the assertion engine.
+
+## ADR-021 --- Bounded Recovery and Safe UI Locator Fallbacks
+
+**Status:** Accepted\
+**Decision:**
+1. **Transient vs Permanent Error Classification:**
+   - Transient infrastructure and network failures (`NETWORK_ERROR`, `ADAPTER_TIMEOUT`, HTTP 502, 503, 504, 429) are retryable subject to bounded attempts and backoff.
+   - Permanent failures (client HTTP 4xx except 429, schema validation errors, unsupported actions, policy blocks, target allowlist blocks, and deterministic assertion failures) are strictly non-retryable. Business assertion failures are never masked by retries.
+2. **Safe Idempotency Bounds:**
+   - Steps marked `idempotency_class="non_idempotent"` are attempted exactly once and strictly prohibited from retries unless the plan author explicitly sets `allow_non_idempotent_retry=True`.
+   - Exponential backoff (`base * 1.5^(attempt-1)`) is bounded between [0.1s, 30.0s] with a hard ceiling of 5 attempts (`ABSOLUTE_MAX_ATTEMPTS`).
+3. **Bounded AI Response Repair:**
+   - AI-generated structured model responses are validated against strict Pydantic schemas (`DAGTaskSchema`, `MissionDAGPlan`).
+   - On malformed JSON or schema violation, bounded repair feedback re-prompts the model up to 2 repair attempts (3 total calls) containing only sanitized schema diagnostic paths (`field: error`).
+   - Repair prompts strictly exclude secrets, raw tokens, and credentials. Model output containing executable code tokens (`__import__`, `eval(`, `os.system`) is rejected.
+   - If repair attempts are exhausted, the request fails with HTTP 422 `VALIDATION_ERROR`. Invalid model outputs are never silently converted into successful plans.
+4. **Conservative UI Locator Fallbacks:**
+   - Locators support fallback resolution across ranked, allowlisted strategies: `test_id` -> `role` -> `label` -> `placeholder` -> `text` -> `css`, capped at 3 fallback attempts.
+   - **Unambiguous Match Invariant:** A locator is only accepted if it matches exactly one element (`count == 1`). If multiple elements match (`count > 1`), `AmbiguousLocatorError` is raised immediately. Blindly clicking the first matching element is strictly prohibited to prevent destructive or unintended actions.
+   - If a fallback succeeds, telemetry logs `recovered_via_fallback=True`, `fallback_strategy`, and `locator_strategy`.
+   - Post-action assertions are strictly preserved; recovering an element locator never masks or bypasses a failed business assertion.
+5. **Diagnostic Failure Evidence:**
+   - On locator resolution failure, timeout, or action error, the adapter captures a screenshot artifact and a sanitized DOM snapshot (with passwords and sensitive inputs redacted to `[REDACTED]`) bounded to 4KB.
+   - Deterministic fallbacks satisfy requirements without adding speculative, untrusted AI locator repair in the browser.
+**Reason:** Prevents flakiness from transient network drops and minor UI selector alterations while rigorously defending against prompt injection, destructive non-idempotent re-execution, credential leakage, and assertion masking.\
+**Trade-offs & Constraints:**
+- Fallbacks are bounded to 3 candidates per action to prevent unbounded resolution latency.
+- Ambiguous matches fail fast rather than guessing element order.
+
+## ADR-022 --- Post-Run Evaluation and Evidence-Based Root Cause Analysis
+
+**Status:** Accepted\
+**Decision:**
+1. **Authoritative Evaluation Trigger & Terminal Lifecycle:**
+   - Test run evaluation is automatically triggered across all runner paths (`DAGTaskScheduler` in API, worker execution runner, single-plan execution, and run cancellation) when a run reaches terminal status (`passed`, `failed`, `blocked`, `cancelled`, `inconclusive`).
+   - Evaluation is decoupled from worker internals and executed through `evaluation_service.evaluate_and_persist_run`.
+2. **Strict Idempotency:**
+   - To guard against worker job redelivery, multiple completion messages, or repeated API calls, `evaluate_and_persist_run` checks for prior `RunEvent(event_type="evaluation_completed")`.
+   - If an existing evaluation record is present and not explicitly forced (`force_reevaluate=False`), the cached `MissionEvaluationReport` is returned with `is_idempotent_replay=True`, preventing duplicate events and database mutations.
+3. **Deterministic Verdict & State Transition Rules:**
+   - Overall run verdict is computed deterministically:
+     - Any task `failed` -> Run status `FAILED`.
+     - Any task `blocked` (with no failed tasks) -> Run status `BLOCKED`.
+     - Any task `cancelled` or run explicitly cancelled -> Run status `CANCELLED`.
+     - All tasks `passed` -> Run status `PASSED`.
+     - Otherwise -> `INCONCLUSIVE`.
+4. **Requirement Traceability Coverage:**
+   - Maps requirement IDs to task outcomes: all tasks passed -> `PASSED`, any task failed -> `FAILED`, any blocked -> `BLOCKED`.
+   - Requirements declared in specification metadata without executable task coverage are unambiguously labeled `UNTESTED` with diagnostic notes explaining absence of executable tasks.
+5. **Evidence-Grounded Root Cause Analysis:**
+   - Analyzes deterministic telemetry first: failed assertions (expected vs actual), HTTP response status codes, transient network vs permanent error classifications, UI locator ambiguity, screenshot artifacts, DOM dumps, and dependency blocking chains.
+   - Categorizes causes into `confirmed_cause` (assertion mismatch, locator validation error, prerequisite failure), `probable_cause` (timeout, network drop), or `unknown_cause` (`[INSUFFICIENT_EVIDENCE]`).
+6. **Optional AI Summarization with Hard Invariants:**
+   - When an LLM provider is configured, it synthesizes an executive summary and plausible hypotheses.
+   - **Critical Invariant:** AI output never alters test verdicts, counts, or passes/fails.
+   - **Secret Redaction:** Input prompts are sanitized via `_sanitize_for_prompt` to redact bearer tokens, passwords, and sensitive credentials.
+   - **Graceful Fallback:** If the model fails, returns malformed JSON, or times out, the evaluator seamlessly falls back to deterministic diagnostics without failing the evaluation.
+7. **Reporting & Deliverable Integration:**
+   - Automatically exports or refreshes `/output/runs/{run_id}/execution_log.json` and `/output/runs/{run_id}/report.md` upon evaluation completion, ensuring deliverables reflect final evaluator assessments and root cause diagnostics.
+**Reason:** Ensures automated post-run analysis is strictly truthful, evidence-grounded, idempotent, secure against prompt manipulation, and observable.\
+**Trade-offs & Constraints:**
+- AI hypotheses are explicitly labeled `is_ai_generated: true` and cannot overwrite deterministic facts.
+- Evaluation failures emit `evaluation_failed` events and preserve the original execution run state.
+
 ## Open decisions
 
+-   None pending for MVP Milestone 2.
 
--   **Model-assisted Failure Root Cause Summaries (P5-05):** Define evidence-grounded prompt schema referencing only sanitized step attempt logs and assertion failure traces.
+
 

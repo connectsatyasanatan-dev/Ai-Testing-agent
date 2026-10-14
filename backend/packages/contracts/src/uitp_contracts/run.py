@@ -10,7 +10,7 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from uitp_contracts.enums import RunStatus, StepStatus
+from uitp_contracts.enums import RunStatus, StepStatus, TestSuiteType
 
 
 class RunSchema(BaseModel):
@@ -32,6 +32,7 @@ class RunSchema(BaseModel):
     """UUIDv4 of the user who requested the run."""
 
     worker_id: str | None = None
+    suite_type: str = "all"
     started_at: datetime | None = None
     finished_at: datetime | None = None
     created_at: datetime
@@ -85,3 +86,5 @@ class CreateRunRequest(BaseModel):
     """Optional client-provided key to prevent duplicate run creation (P3-03)."""
     background: bool = False
     """If True, enqueues the run into the worker queue instead of running synchronously."""
+    suite_type: TestSuiteType = TestSuiteType.ALL
+    """Test suite selection filter: all, smoke, or regression."""

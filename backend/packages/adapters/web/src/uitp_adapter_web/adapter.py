@@ -19,6 +19,7 @@ import base64
 import hashlib
 import inspect
 import logging
+import re
 import time
 import uuid
 from dataclasses import dataclass
@@ -48,6 +49,7 @@ except ImportError:
 from uitp_adapter_base.base import BaseAdapter, ExecutionContext, StepExecutionResult
 from uitp_adapter_web.assertions import WebAssertionEngine
 from uitp_adapter_web.exceptions import (
+    AmbiguousLocatorError,
     BlockedNavigationError,
     InvalidLocatorError,
     ResourceLimitExceededError,
@@ -261,6 +263,39 @@ class PlaywrightAdapter(BaseAdapter):
             for rid in run_ids:
                 await self._close_session_unlocked(rid)
 
+    @classmethod
+    async def capture_failure_diagnostics(cls, page: Any) -> dict[str, Any]:
+        """Capture screenshot and sanitized DOM snapshot evidence."""
+        diagnostics: dict[str, Any] = {}
+        try:
+            fail_png = await page.screenshot()
+            diagnostics["failure_screenshot_bytes"] = fail_png
+        except Exception as ss_exc:
+            logger.debug("Could not capture failure screenshot: %s", ss_exc)
+
+        try:
+            dom_html = await page.content()
+            sanitized_dom = re.sub(r'type=["\']password["\'][^>]*', 'type="password" [REDACTED]', dom_html)
+            sanitized_dom = re.sub(
+                r'(<(?:input|textarea)[^>]*?(?:name|id)=["\'][^"\']*(?:password|pwd|secret|token|key|auth)[^"\']*["\'][^>]*?value=)(["\'])[^"\']*\2',
+                r'\1\2[REDACTED]\2',
+                sanitized_dom,
+                flags=re.IGNORECASE,
+            )
+            sanitized_dom = re.sub(
+                r'(<(?:input|textarea)[^>]*?value=)(["\'])[^"\']*\2([^>]*?(?:name|id)=["\'][^"\']*(?:password|pwd|secret|token|key|auth)[^"\']*["\'])',
+                r'\1\2[REDACTED]\2\3',
+                sanitized_dom,
+                flags=re.IGNORECASE,
+            )
+            diagnostics["dom_snapshot"] = sanitized_dom[:4096]
+        except Exception as dom_exc:
+            logger.debug("Could not capture DOM snapshot: %s", dom_exc)
+
+        return diagnostics
+
+    _capture_failure_diagnostics = capture_failure_diagnostics
+
     def _resolve_url(self, step: TestStepSchema, context: ExecutionContext) -> tuple[str | None, StepExecutionResult | None]:
         url_input = step.inputs.get("url") or step.inputs.get("target_url")
         if not url_input or not isinstance(url_input, str):
@@ -376,6 +411,27 @@ class PlaywrightAdapter(BaseAdapter):
         action_outputs: dict[str, Any] = {}
         evidence_list: list[EvidenceArtifactSchema] = []
 
+        async def _capture_failure_diagnostics() -> None:
+            diag = await self.capture_failure_diagnostics(page)
+            if "failure_screenshot_bytes" in diag:
+                fail_png = diag["failure_screenshot_bytes"]
+                fail_checksum = hashlib.sha256(fail_png).hexdigest()
+                fail_artifact = EvidenceArtifactSchema(
+                    id=str(uuid.uuid4()),
+                    run_id=context.run_id,
+                    step_attempt_id=f"{context.run_id}_{context.step_id}_{context.attempt_number}",
+                    type=EvidenceType.SCREENSHOT,
+                    checksum=fail_checksum,
+                    redaction_status="not_required",
+                    created_at=datetime.now(UTC),
+                    size_bytes=len(fail_png),
+                    content_type="image/png",
+                )
+                evidence_list.append(fail_artifact)
+                action_outputs["failure_screenshot_bytes"] = fail_png
+            if "dom_snapshot" in diag:
+                action_outputs["failure_dom_snapshot"] = diag["dom_snapshot"]
+
         try:
             if action in ("navigate", "goto"):
                 assert target_url is not None
@@ -384,24 +440,38 @@ class PlaywrightAdapter(BaseAdapter):
                 action_outputs["title"] = await page.title()
 
             elif action == "click":
-                spec = LocatorResolver.parse_spec(step.inputs)
-                locator = LocatorResolver.resolve(page, spec)
+                primary_spec, fallback_specs = LocatorResolver.parse_fallback_specs(step.inputs)
+                locator, resolved_spec, is_fallback, fb_strat = await LocatorResolver.resolve_with_fallback(
+                    page, primary_spec, fallback_specs
+                )
                 await locator.click(timeout=action_timeout_ms)
-                action_outputs["clicked_spec"] = spec.value
+                action_outputs["clicked_spec"] = resolved_spec.value
+                action_outputs["locator_strategy"] = resolved_spec.strategy
+                if is_fallback:
+                    action_outputs["recovered_via_fallback"] = True
+                    action_outputs["fallback_strategy"] = fb_strat
 
             elif action == "fill":
-                spec = LocatorResolver.parse_spec(step.inputs)
-                locator = LocatorResolver.resolve(page, spec)
+                primary_spec, fallback_specs = LocatorResolver.parse_fallback_specs(step.inputs)
+                locator, resolved_spec, is_fallback, fb_strat = await LocatorResolver.resolve_with_fallback(
+                    page, primary_spec, fallback_specs
+                )
                 fill_val = str(step.inputs.get("value", ""))
                 await locator.fill(fill_val, timeout=action_timeout_ms)
                 # Redact if password or secret reference
-                is_sensitive = "password" in spec.value.lower() or "secret" in spec.value.lower() or "secret_ref" in step.inputs
-                action_outputs["filled_spec"] = spec.value
+                is_sensitive = "password" in resolved_spec.value.lower() or "secret" in resolved_spec.value.lower() or "secret_ref" in step.inputs
+                action_outputs["filled_spec"] = resolved_spec.value
+                action_outputs["locator_strategy"] = resolved_spec.strategy
                 action_outputs["filled_value"] = "[REDACTED]" if is_sensitive else fill_val
+                if is_fallback:
+                    action_outputs["recovered_via_fallback"] = True
+                    action_outputs["fallback_strategy"] = fb_strat
 
             elif action in ("select", "select_option"):
-                spec = LocatorResolver.parse_spec(step.inputs)
-                locator = LocatorResolver.resolve(page, spec)
+                primary_spec, fallback_specs = LocatorResolver.parse_fallback_specs(step.inputs)
+                locator, resolved_spec, is_fallback, fb_strat = await LocatorResolver.resolve_with_fallback(
+                    page, primary_spec, fallback_specs
+                )
                 val = step.inputs.get("value")
                 lbl = step.inputs.get("label")
                 idx = step.inputs.get("index")
@@ -418,7 +488,11 @@ class PlaywrightAdapter(BaseAdapter):
                         error_code=ErrorCode.VALIDATION_ERROR,
                         error_message="Action 'select' requires 'value', 'label', or 'index'.",
                     )
-                action_outputs["selected_spec"] = spec.value
+                action_outputs["selected_spec"] = resolved_spec.value
+                action_outputs["locator_strategy"] = resolved_spec.strategy
+                if is_fallback:
+                    action_outputs["recovered_via_fallback"] = True
+                    action_outputs["fallback_strategy"] = fb_strat
 
             elif action in ("wait_for", "wait"):
                 wait_state = step.inputs.get("state")
@@ -429,8 +503,10 @@ class PlaywrightAdapter(BaseAdapter):
                     await page.wait_for_url(str(url_condition), timeout=action_timeout_ms)
                     action_outputs["waited_for_url"] = str(url_condition)
                 elif wait_state or "selector" in step.inputs or "locator" in step.inputs:
-                    spec = LocatorResolver.parse_spec(step.inputs)
-                    locator = LocatorResolver.resolve(page, spec)
+                    primary_spec, fallback_specs = LocatorResolver.parse_fallback_specs(step.inputs)
+                    locator, resolved_spec, is_fallback, fb_strat = await LocatorResolver.resolve_with_fallback(
+                        page, primary_spec, fallback_specs
+                    )
                     target_state = str(wait_state or "visible").lower()
                     if target_state not in ("visible", "hidden", "attached", "detached"):
                         return StepExecutionResult(
@@ -440,6 +516,10 @@ class PlaywrightAdapter(BaseAdapter):
                         )
                     await locator.wait_for(state=target_state, timeout=action_timeout_ms)
                     action_outputs["waited_for_state"] = target_state
+                    action_outputs["locator_strategy"] = resolved_spec.strategy
+                    if is_fallback:
+                        action_outputs["recovered_via_fallback"] = True
+                        action_outputs["fallback_strategy"] = fb_strat
                 elif time_condition:
                     dur = min(float(time_condition), 10.0)
                     await asyncio.sleep(dur)
@@ -472,20 +552,33 @@ class PlaywrightAdapter(BaseAdapter):
                 action_outputs["screenshot_checksum"] = checksum
                 action_outputs["screenshot_bytes"] = png_bytes
 
-        except InvalidLocatorError as exc:
+        except AmbiguousLocatorError as exc:
+            await _capture_failure_diagnostics()
             return StepExecutionResult(
                 status=StepStatus.FAILED,
                 error_code=ErrorCode.VALIDATION_ERROR,
                 error_message=str(exc),
                 outputs=action_outputs,
+                evidence=evidence_list,
+            )
+        except InvalidLocatorError as exc:
+            await _capture_failure_diagnostics()
+            return StepExecutionResult(
+                status=StepStatus.FAILED,
+                error_code=ErrorCode.VALIDATION_ERROR,
+                error_message=str(exc),
+                outputs=action_outputs,
+                evidence=evidence_list,
             )
         except (PlaywrightTimeoutError, TimeoutError, asyncio.TimeoutError) as exc:
             logger.warning("Action '%s' timed out in step %s: %s", action, step.step_id, exc)
+            await _capture_failure_diagnostics()
             return StepExecutionResult(
                 status=StepStatus.FAILED,
                 error_code=ErrorCode.VALIDATION_ERROR,
                 error_message=f"Action '{action}' timed out after {step_timeout:.1f}s",
                 outputs=action_outputs,
+                evidence=evidence_list,
             )
         except PlaywrightError as exc:
             exc_str = str(exc)
@@ -499,19 +592,23 @@ class PlaywrightAdapter(BaseAdapter):
                     error_message=f"Navigation blocked by security policy: {block_info.get('reason')}",
                     outputs=action_outputs,
                 )
+            await _capture_failure_diagnostics()
             return StepExecutionResult(
                 status=StepStatus.FAILED,
                 error_code=ErrorCode.VALIDATION_ERROR,
                 error_message=f"Browser action failed: {exc_str}",
                 outputs=action_outputs,
+                evidence=evidence_list,
             )
         except Exception as exc:
             logger.exception("Unexpected error executing step %s action %s: %s", step.step_id, action, exc)
+            await _capture_failure_diagnostics()
             return StepExecutionResult(
                 status=StepStatus.FAILED,
                 error_code=ErrorCode.VALIDATION_ERROR,
                 error_message=f"Step execution error: {type(exc).__name__}: {exc}",
                 outputs=action_outputs,
+                evidence=evidence_list,
             )
 
         # Record standard current page state

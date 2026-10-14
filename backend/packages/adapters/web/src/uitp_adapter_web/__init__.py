@@ -8,6 +8,7 @@ from uitp_adapter_web.assertions import WebAssertionEngine
 from uitp_adapter_web.exceptions import (
     BlockedNavigationError,
     ElementNotFoundError,
+    AmbiguousLocatorError,
     InvalidLocatorError,
     ResourceLimitExceededError,
     WebActionTimeoutError,
@@ -26,6 +27,7 @@ __all__ = [
     "BlockedNavigationError",
     "InvalidLocatorError",
     "ElementNotFoundError",
+    "AmbiguousLocatorError",
     "WebActionTimeoutError",
     "ResourceLimitExceededError",
 ]

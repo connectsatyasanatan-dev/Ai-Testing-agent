@@ -8,6 +8,8 @@ import { queryClient } from "@/lib/query-client";
 import Dashboard from "@/pages/Dashboard";
 import Environments from "@/pages/Environments";
 import Login from "@/pages/Login";
+import MissionDetail from "@/pages/MissionDetail";
+import MissionPlanner from "@/pages/MissionPlanner";
 import NotFound from "@/pages/NotFound";
 import PlanDetail from "@/pages/PlanDetail";
 import PlanEditor from "@/pages/PlanEditor";
@@ -38,6 +40,10 @@ export default function App() {
             <Route path="/projects/:projectId/plans/:planId" element={<PlanDetail />} />
             <Route path="/plans/:planId/edit" element={<PlanEditor />} />
             <Route path="/projects/:projectId/plans/:planId/edit" element={<PlanEditor />} />
+            <Route path="/missions/new" element={<MissionPlanner />} />
+            <Route path="/projects/:projectId/missions/new" element={<MissionPlanner />} />
+            <Route path="/missions/:missionId" element={<MissionDetail />} />
+            <Route path="/projects/:projectId/missions/:missionId" element={<MissionDetail />} />
             <Route path="/runs" element={<Runs />} />
             <Route path="/projects/:projectId/runs" element={<Runs />} />
             <Route path="/runs/:runId" element={<RunDetail />} />

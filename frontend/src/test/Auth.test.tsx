@@ -64,7 +64,7 @@ describe("Auth Flow — Login & Register Pages", () => {
   it("toggles password visibility on show/hide click", () => {
     renderWithClient("/login");
 
-    const passwordInput = screen.getByLabelText(/^Password/i) as HTMLInputElement;
+    const passwordInput = screen.getByLabelText<HTMLInputElement>(/^Password/i);
     const toggleButton = screen.getByRole("button", { name: /Show password/i });
 
     expect(passwordInput.type).toBe("password");
@@ -80,8 +80,8 @@ describe("Auth Flow — Login & Register Pages", () => {
     const adminPill = screen.getByRole("button", { name: /Admin/i });
     fireEvent.click(adminPill);
 
-    const emailInput = screen.getByLabelText(/Email address/i) as HTMLInputElement;
-    const passwordInput = screen.getByLabelText(/^Password/i) as HTMLInputElement;
+    const emailInput = screen.getByLabelText<HTMLInputElement>(/Email address/i);
+    const passwordInput = screen.getByLabelText<HTMLInputElement>(/^Password/i);
 
     expect(emailInput.value).toBe("admin@example.com");
     expect(passwordInput.value).toBe("AdminPassword123!");

@@ -114,6 +114,15 @@ export default function Plans() {
             </p>
           </div>
           <div className={styles.headerActions}>
+            <Link
+              to={currentProjectId ? `/projects/${currentProjectId}/missions/new` : "/missions/new"}
+              className={styles.createButton}
+              style={{ backgroundColor: "#4f46e5", borderColor: "#4338ca", color: "#fff" }}
+              id="plan-mission-button"
+            >
+              <span>🚀</span>
+              <span>Autonomous Mission</span>
+            </Link>
             <button
               type="button"
               className={styles.aiGenerateButton}

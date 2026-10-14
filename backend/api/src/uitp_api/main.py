@@ -21,7 +21,7 @@ from uitp_api.config import get_settings
 from uitp_api.database import init_engine
 from uitp_api.exceptions import UITPException
 from uitp_api.logging_config import configure_logging
-from uitp_api.routers import artifacts, auth, environments, health, missions, plans, projects, runs
+from uitp_api.routers import artifacts, auth, environments, exports, health, missions, plans, projects, runs
 
 _settings = get_settings()
 configure_logging(level=_settings.log_level, fmt=_settings.log_format.value)
@@ -125,6 +125,7 @@ def create_app() -> FastAPI:
     app.include_router(missions.project_missions_router)
     app.include_router(missions.missions_router)
     app.include_router(missions.runs_evaluation_router)
+    app.include_router(exports.router)
     app.include_router(artifacts.router)
 
     logger.info("API ready | env=%s ai=%s", settings.app_env, settings.ai_enabled)

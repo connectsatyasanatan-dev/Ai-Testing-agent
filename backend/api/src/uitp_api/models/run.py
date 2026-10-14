@@ -54,6 +54,7 @@ class Run(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         nullable=False,
     )
     worker_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    suite_type: Mapped[str] = mapped_column(String(32), default="all", nullable=False)
     idempotency_key: Mapped[str | None] = mapped_column(
         String(255), nullable=True, unique=True
     )

@@ -1,0 +1,1 @@
+{"task_id": "ui_click_task", "step_id": "step_click", "attempt_number": 1, "action": "click", "request": {"method": "UNKNOWN", "url": null, "headers": null, "body": null}, "response": {"status_code": null, "headers": null, "body": null, "content_type": null, "duration_ms": null}, "assertions": null}

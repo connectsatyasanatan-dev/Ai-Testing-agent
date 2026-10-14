@@ -63,8 +63,8 @@ export default function Login() {
   const [rememberMe, setRememberMe] = useState(true);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const from = (location.state as any)?.from?.pathname || "/";
+  const state = location.state as { from?: { pathname?: string } } | null;
+  const from = state?.from?.pathname || "/";
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -171,7 +171,7 @@ export default function Login() {
 
           {errorMsg && <ErrorMessage title="Authentication Failed" message={errorMsg} />}
 
-          <form onSubmit={handleSubmit} className={styles.form} noValidate>
+          <form onSubmit={(e) => { void handleSubmit(e); }} className={styles.form} noValidate>
             <div className={styles.formGroup}>
               <label htmlFor="login-email" className={styles.label}>
                 Email address

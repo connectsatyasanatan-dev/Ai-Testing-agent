@@ -40,6 +40,9 @@ class DAGTask(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     exports: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
     timeout_seconds: Mapped[float] = mapped_column(Float, default=60.0, nullable=False)
     requirement_refs: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
+    priority: Mapped[str] = mapped_column(String(16), default="P1", nullable=False)
+    is_smoke: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    is_regression: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 
     __table_args__ = (
         UniqueConstraint("plan_id", "task_id", name="uq_dag_task_plan_task_id"),

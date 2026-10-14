@@ -362,10 +362,15 @@ Do not claim Milestone 2 (Full MVP) is complete after only Milestone 1.
     -   *Completed:* All AI-generated plans are strictly saved as drafts with `requires_approval: true`. Execution attempts fail with 422 `PLAN_NOT_APPROVED` until human review and approval via `POST /api/v1/plans/{plan_id}/approve`. Built `AIGeneratePlanModal.tsx` in frontend with draft preview, blocked steps warnings, and links to the editor and approval flow.
     -   Acceptance: Tested approval gate rejection, subsequent approved execution, and 4 Vitest frontend tests.
 
--   [ ] **P5-05** Generate evidence-grounded failure summaries.
-    -   Acceptance: manual plans still work without a provider key;
-        prompt injection fixtures do not change policy or execution
-        outcome.
+-   [x] **P5-05** Generate evidence-grounded failure summaries (Task 8).
+    -   *Completed:*
+        - Implemented `evaluation_service.evaluate_and_persist_run` with single authoritative lifecycle trigger on terminal states (`passed`, `failed`, `blocked`, `cancelled`, `inconclusive`).
+        - Enforced strict idempotency: cached evaluation report returned with `is_idempotent_replay: true` on duplicate triggers or redelivery.
+        - Grounded deterministic root-cause analysis: classified into `confirmed_cause`, `probable_cause`, or `unknown_cause` (`[INSUFFICIENT_EVIDENCE]`), extracting failed assertions, expected vs actual values, HTTP status codes, UI locator errors, and dependency failure chains.
+        - Requirement traceability matrix: mapped requirements to task outcomes with explicit `UNTESTED` diagnostic notes for unmapped requirements.
+        - Optional token-bounded AI root-cause summarization with secret redaction (`_sanitize_for_prompt`) and automatic deterministic fallback. Invariant: AI never alters test results or converts failures into passes.
+        - Reporting integration: deliverable exports (`/output/runs/{run_id}/execution_log.json` and `report.md`) include final evaluator assessment and requirement coverage matrix.
+    -   Acceptance: Tested with unit tests (`tests/unit/test_evaluation_service.py`), integration tests (`tests/integration/test_post_run_evaluation_pipeline.py`), and multi-agent mission suites. Manual plans work offline without provider keys; prompt injection fixtures do not alter verdicts or policies.
 
 ---
 

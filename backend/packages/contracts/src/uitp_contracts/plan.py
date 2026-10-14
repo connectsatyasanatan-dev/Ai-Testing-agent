@@ -12,6 +12,7 @@ These are the canonical types shared between:
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, HttpUrl, field_validator
@@ -24,6 +25,7 @@ from uitp_contracts.enums import (
     PlanStatus,
     RiskLevel,
     RunStatus,
+    TaskPriority,
     TaskStatus,
 )
 
@@ -418,6 +420,9 @@ class DAGTaskSchema(BaseModel):
     exports: dict[str, ContextExportDef] = Field(default_factory=dict, description="Variables exported to downstream tasks")
     timeout_seconds: float = Field(default=60.0, ge=1.0, le=300.0)
     requirement_refs: list[str] = Field(default_factory=list, description="Requirement keys covered by this task")
+    priority: TaskPriority = Field(default=TaskPriority.P1, description="Task priority (P0, P1, P2, P3)")
+    is_smoke: bool = Field(default=False, description="True if task verifies P0 critical journeys or is explicitly smoke-eligible")
+    is_regression: bool = Field(default=True, description="True if task verifies existing behavior across broader scenarios")
 
 
 class MissionDAGPlan(BaseModel):
@@ -483,6 +488,12 @@ class MissionEvaluationReport(BaseModel):
     passed_tasks: int
     failed_tasks: int
     blocked_tasks: int
+    skipped_tasks: int = 0
+    cancelled_tasks: int = 0
+    inconclusive_tasks: int = 0
+    evaluation_version: str = "1.0"
+    evaluated_at: datetime | None = None
+    is_idempotent_replay: bool = False
     requirement_coverage: list[RequirementCoverageStatus] = Field(default_factory=list)
     root_cause_analysis: list[dict[str, Any]] = Field(default_factory=list)
     executive_summary: str

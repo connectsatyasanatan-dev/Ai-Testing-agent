@@ -96,6 +96,7 @@ frontend/coverage/
 /tests/artifacts/
 /tests/evidence/
 /tests/output/
+/output/runs/
 /playwright-report/
 /test-results/
 /blob-report/

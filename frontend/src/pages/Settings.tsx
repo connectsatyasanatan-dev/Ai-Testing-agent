@@ -272,7 +272,7 @@ export default function Settings() {
                 <Spinner label="Loading project team..." />
               </div>
             ) : membersError ? (
-              <ErrorMessage message={(membersError as Error).message || "Failed to load project members."}>
+              <ErrorMessage message={(membersError).message || "Failed to load project members."}>
                 <div style={{ marginTop: "var(--space-2)" }}>
                   <Button variant="secondary" size="sm" onClick={() => void refetchMembers()}>
                     Retry
@@ -398,7 +398,7 @@ export default function Settings() {
                 <Spinner label="Loading tokens..." />
               </div>
             ) : tokensQueryError ? (
-              <ErrorMessage message={(tokensQueryError as Error).message || "Failed to load tokens."}>
+              <ErrorMessage message={(tokensQueryError).message || "Failed to load tokens."}>
                 <div style={{ marginTop: "var(--space-2)" }}>
                   <Button variant="secondary" size="sm" onClick={() => void refetchTokens()}>
                     Retry
@@ -527,7 +527,7 @@ curl -H "Authorization: Bearer <YOUR_API_TOKEN>" \\
                 <Spinner label="Loading audit logs..." />
               </div>
             ) : auditQueryError ? (
-              <ErrorMessage message={(auditQueryError as Error).message || "Failed to load audit records."}>
+              <ErrorMessage message={(auditQueryError).message || "Failed to load audit records."}>
                 <div style={{ marginTop: "var(--space-2)" }}>
                   <Button variant="secondary" size="sm" onClick={() => void refetchAudit()}>
                     Retry

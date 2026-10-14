@@ -71,6 +71,7 @@ class RunResponse(BaseModel):
     plan_name: str | None = None
     adapter_type: str | None = None
     environment_name: str | None = None
+    suite_type: str = "all"
     step_attempts: list[StepAttemptResponse] = Field(default_factory=list)
 
     model_config = ConfigDict(from_attributes=True)
@@ -141,6 +142,7 @@ async def create_and_execute_run(
                 plan_version=body.plan_version,
                 idempotency_key=idem_key,
                 queue=queue,
+                suite_type=body.suite_type,
             )
             return RunResponse.model_validate(run)
         except (QueueError, QueueUnavailableError) as q_err:
@@ -160,6 +162,7 @@ async def create_and_execute_run(
         idempotency_key=idem_key,
         transport=transport,
         web_adapter=web_adapter,
+        suite_type=body.suite_type,
     )
 
     return RunResponse.model_validate(run)

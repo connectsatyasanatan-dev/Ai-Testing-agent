@@ -126,3 +126,10 @@ class ConcurrencyLimitExceededError(RateLimitExceededError):
         retry_after: int | None = 10,
     ) -> None:
         super().__init__(message=message, retry_after=retry_after)
+
+
+class ExportError(UITPException):
+    """Raised when run report or execution log export fails."""
+
+    def __init__(self, message: str = "Artifact export failed.") -> None:
+        super().__init__(500, "EXPORT_FAILED", message)

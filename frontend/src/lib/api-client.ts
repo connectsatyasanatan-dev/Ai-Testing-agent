@@ -17,10 +17,12 @@ const API_BASE = (import.meta.env.VITE_API_URL as string | undefined) ?? "";
 interface FetchOptions extends RequestInit {
   /** When true, return the response even if status >= 400 (no throw). */
   allowErrorResponse?: boolean;
+  /** Response parse type: default is json */
+  responseType?: "json" | "text";
 }
 
 async function apiFetch<T>(path: string, options: FetchOptions = {}): Promise<T> {
-  const { allowErrorResponse = false, ...init } = options;
+  const { allowErrorResponse = false, responseType = "json", ...init } = options;
 
   const response = await fetch(`${API_BASE}${path}`, {
     credentials: "include",   // always send session cookies
@@ -53,6 +55,10 @@ async function apiFetch<T>(path: string, options: FetchOptions = {}): Promise<T>
 
   if (response.status === 204 || response.headers.get("content-length") === "0") {
     return null as unknown as T;
+  }
+
+  if (responseType === "text" || response.headers.get("content-type")?.includes("text/markdown") || response.headers.get("content-type")?.includes("text/plain")) {
+    return response.text() as unknown as T;
   }
 
   return response.json() as Promise<T>;
@@ -301,6 +307,34 @@ export function cancelRun(runId: string, reason?: string): Promise<Run> {
     method: "POST",
     body: JSON.stringify(reason ? { reason } : {}),
   });
+}
+
+export function createRun(
+  planId: string,
+  data: {
+    environment_id: string;
+    suite_type?: "smoke" | "regression" | "all";
+    idempotency_key?: string;
+  }
+): Promise<Run> {
+  return apiFetch<Run>(`/api/v1/plans/${planId}/runs`, {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
+export function getRunEvaluation(runId: string): Promise<MissionEvaluationReport> {
+  return apiFetch<MissionEvaluationReport>(`/api/v1/runs/${runId}/evaluation`);
+}
+
+export function getRunReport(runId: string): Promise<string> {
+  return apiFetch<string>(`/api/v1/runs/${runId}/export/report`, {
+    responseType: "text",
+  });
+}
+
+export function getRunExecutionLog(runId: string): Promise<Record<string, unknown>> {
+  return apiFetch<Record<string, unknown>>(`/api/v1/runs/${runId}/export/log`);
 }
 
 
@@ -561,5 +595,41 @@ export function listProjectAuditEvents(
     `/api/v1/projects/${projectId}/audit-events${qs ? `?${qs}` : ""}`
   );
 }
+
+// ── Autonomous Multi-Agent Missions (Task 9) ──────────────────────────────────
+
+import type {
+  MissionDAGPlan,
+  MissionEvaluationReport,
+  MultiAgentMissionRequest,
+} from "@/types/mission";
+
+export function planMission(
+  projectId: string,
+  data: MultiAgentMissionRequest
+): Promise<MissionDAGPlan> {
+  return apiFetch<MissionDAGPlan>(`/api/v1/projects/${projectId}/missions/plan`, {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
+export function getMissionDAG(missionId: string): Promise<MissionDAGPlan> {
+  return apiFetch<MissionDAGPlan>(`/api/v1/missions/${missionId}/dag`);
+}
+
+export function approveMission(
+  missionId: string,
+  comment?: string
+): Promise<{ mission_id: string; status: string; approved_at: string }> {
+  return apiFetch<{ mission_id: string; status: string; approved_at: string }>(
+    `/api/v1/missions/${missionId}/approve`,
+    {
+      method: "POST",
+      body: JSON.stringify(comment ? { comment } : {}),
+    }
+  );
+}
+
 
 

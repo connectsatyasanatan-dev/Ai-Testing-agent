@@ -36,6 +36,15 @@ class ElementNotFoundError(WebAdapterError):
         self.selector = selector
 
 
+class AmbiguousLocatorError(WebAdapterError):
+    """Locator matched multiple elements when an unambiguous single match was required."""
+
+    def __init__(self, message: str, selector: str | None = None, match_count: int = 0) -> None:
+        super().__init__(message)
+        self.selector = selector
+        self.match_count = match_count
+
+
 class WebActionTimeoutError(WebAdapterError):
     """Action or navigation exceeded bounded timeout."""
 

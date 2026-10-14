@@ -4,7 +4,7 @@ uitp_contracts
 Single source of truth for all shared data schemas.
 
 Import from sub-modules:
-    from uitp_contracts.enums import RunStatus, IdempotencyClass
+    from uitp_contracts.enums import RunStatus, IdempotencyClass, TaskPriority, TestSuiteType
     from uitp_contracts.plan import (
         TestPlanSchema,
         TestStepSchema,
@@ -18,5 +18,18 @@ Import from sub-modules:
     from uitp_contracts.evidence import EvidenceArtifactSchema
     from uitp_contracts.adapter import AdapterCapabilities
     from uitp_contracts.errors import ErrorResponse
+    from uitp_contracts.export import ExecutionLogSchema, TaskExecutionLog, ExportResult
+    from uitp_contracts.openapi import (
+        CandidateCategory,
+        OpenAPISecurityScheme,
+        OpenAPIParameter,
+        OpenAPIRequestBody,
+        OpenAPIResponse,
+        NormalizedOperation,
+        NormalizedOpenAPISpec,
+        OpenAPITestCandidate,
+        OpenAPIAnalysisResult,
+        AnalyzeOpenAPIRequest,
+    )
 """
 

@@ -1,0 +1,316 @@
+{
+  "schema_version": "1.0",
+  "run_id": "de3bbf16-0b72-4c5c-9114-fcda16228adc",
+  "mission_id": "68454522-325f-4a69-840b-035b5eccad2c",
+  "plan_version": 1,
+  "environment_id": "4366ead7-34e8-4a1b-b21e-692eb14235ce",
+  "project_id": "badc8df7-ee39-4ca1-92b1-c7b18428754c",
+  "status": "failed",
+  "suite_type": "all",
+  "started_at": "2026-10-14T11:03:22.424849Z",
+  "finished_at": "2026-10-14T11:03:22.751255Z",
+  "duration_seconds": 0.326406,
+  "summary": {
+    "total_tasks": 1,
+    "passed_tasks": 0,
+    "failed_tasks": 1,
+    "blocked_tasks": 0,
+    "skipped_tasks": 0
+  },
+  "requirement_traceability": [
+    {
+      "requirement_id": "REQ-UI-01",
+      "status": "FAILED",
+      "tested_by_tasks": [
+        "ui_click_task"
+      ],
+      "notes": "Failed in task(s): ui_click_task."
+    }
+  ],
+  "tasks": [
+    {
+      "task_id": "ui_click_task",
+      "name": "Click Button",
+      "role": "ui_specialist",
+      "adapter_type": "web",
+      "status": "failed",
+      "attempt_number": 1,
+      "depends_on": [],
+      "requirement_refs": [
+        "REQ-UI-01"
+      ],
+      "priority": "P1",
+      "is_smoke": false,
+      "is_regression": true,
+      "started_at": "2026-10-14T11:03:22.431093",
+      "finished_at": "2026-10-14T11:03:22.746933",
+      "duration_ms": 315.84000000000003,
+      "steps": [
+        {
+          "step_id": "step_click",
+          "action": "click",
+          "adapter_type": "web",
+          "status": "failed",
+          "started_at": "2026-10-14T11:03:22.431093",
+          "finished_at": "2026-10-14T11:03:22.441936",
+          "duration_ms": 10.843,
+          "error_message": "Element '#submit-button' not visible within 5000ms",
+          "inputs_summary": {
+            "method": "UNKNOWN",
+            "url": null,
+            "headers": null,
+            "body": null
+          },
+          "outputs_summary": {
+            "status_code": null,
+            "headers": null,
+            "body": null,
+            "content_type": null,
+            "duration_ms": null
+          },
+          "http_status": null,
+          "schema_validation": null,
+          "ui_action_outcome": null,
+          "assertions": [],
+          "evidence_references": [
+            {
+              "artifact_id": "65e7c01b-0ddd-4e29-9c36-39868e959dad",
+              "type": "response_log",
+              "relative_path": "evidence/65e7c01b-0ddd-4e29-9c36-39868e959dad.json",
+              "checksum": "9f22b2c6af90f386ea018a88bc4d5685050cd5d44aab8a4b24dce536ee3e8484",
+              "size_bytes": 300,
+              "content_type": "application/json"
+            },
+            {
+              "artifact_id": "7d75c349-759d-4e4b-a0fc-4b98de7ad930",
+              "type": "screenshot",
+              "relative_path": "evidence/7d75c349-759d-4e4b-a0fc-4b98de7ad930.png",
+              "checksum": "f92b68465b92c5670bf6d5e9a418163484c6be00f372913a42015921aaaa3ad7",
+              "size_bytes": 67,
+              "content_type": "image/png"
+            }
+          ]
+        }
+      ],
+      "retries_count": 0,
+      "error_category": "runtime_error",
+      "diagnostic": "Element '#submit-button' not visible within 5000ms",
+      "evidence_references": [
+        {
+          "artifact_id": "65e7c01b-0ddd-4e29-9c36-39868e959dad",
+          "type": "response_log",
+          "relative_path": "evidence/65e7c01b-0ddd-4e29-9c36-39868e959dad.json",
+          "checksum": "9f22b2c6af90f386ea018a88bc4d5685050cd5d44aab8a4b24dce536ee3e8484",
+          "size_bytes": 300,
+          "content_type": "application/json"
+        },
+        {
+          "artifact_id": "7d75c349-759d-4e4b-a0fc-4b98de7ad930",
+          "type": "screenshot",
+          "relative_path": "evidence/7d75c349-759d-4e4b-a0fc-4b98de7ad930.png",
+          "checksum": "f92b68465b92c5670bf6d5e9a418163484c6be00f372913a42015921aaaa3ad7",
+          "size_bytes": 67,
+          "content_type": "image/png"
+        }
+      ]
+    }
+  ],
+  "retry_history": [],
+  "timeline_events": [
+    {
+      "event_id": "727989b8-ac75-4a9b-a1e6-a82e1c58f3b4",
+      "event_type": "run_started",
+      "timestamp": "2026-10-14T11:03:22.424849+00:00",
+      "step_id": null,
+      "attempt_id": null,
+      "message": "Run started for plan 'UI Screenshot Mission' v1",
+      "metadata": {
+        "plan_id": "68454522-325f-4a69-840b-035b5eccad2c",
+        "version": 1,
+        "environment_id": "4366ead7-34e8-4a1b-b21e-692eb14235ce",
+        "suite_type": "all"
+      }
+    },
+    {
+      "event_id": "c20b346d-0385-4336-829b-95eabdc62c08",
+      "event_type": "task_started",
+      "timestamp": "2026-10-14T11:03:22.431093",
+      "step_id": null,
+      "attempt_id": null,
+      "message": "Starting task 'ui_click_task' (Click Button)",
+      "metadata": {
+        "task_id": "ui_click_task",
+        "assigned_role": "ui_specialist",
+        "adapter_type": "web"
+      }
+    },
+    {
+      "event_id": "85239f8b-2d99-443a-a382-e84c3d5be941",
+      "event_type": "step_started",
+      "timestamp": "2026-10-14T11:03:22.431093",
+      "step_id": "step_click",
+      "attempt_id": null,
+      "message": "Starting step 'step_click' in task 'ui_click_task' (attempt 1/1)",
+      "metadata": {
+        "task_id": "ui_click_task",
+        "attempt_number": 1
+      }
+    },
+    {
+      "event_id": "b2a57e70-2d28-46bf-ad0b-0476021431a6",
+      "event_type": "step_failed",
+      "timestamp": "2026-10-14T11:03:22.441936",
+      "step_id": "step_click",
+      "attempt_id": "eabd4ca7-3d9a-4837-8db6-e21dac3100fe",
+      "message": "Element '#submit-button' not visible within 5000ms",
+      "metadata": {
+        "task_id": "ui_click_task",
+        "attempt_number": 1,
+        "status_code": null,
+        "duration_ms": null
+      }
+    },
+    {
+      "event_id": "fba1499e-bdb1-4ad4-9bf6-3ff50a90c373",
+      "event_type": "task_failed",
+      "timestamp": "2026-10-14T11:03:22.746933",
+      "step_id": null,
+      "attempt_id": null,
+      "message": "Task 'ui_click_task' failed: Element '#submit-button' not visible within 5000ms",
+      "metadata": {
+        "task_id": "ui_click_task",
+        "error": "Element '#submit-button' not visible within 5000ms"
+      }
+    },
+    {
+      "event_id": "7d04390e-2adb-47b4-8a4b-1bef9efaf33c",
+      "event_type": "run_failed",
+      "timestamp": "2026-10-14T11:03:22.751255",
+      "step_id": null,
+      "attempt_id": null,
+      "message": "Run completed with status failed",
+      "metadata": null
+    },
+    {
+      "event_id": "ab25ebc2-ef3d-4ebc-b630-e8344c106ef0",
+      "event_type": "evaluation_completed",
+      "timestamp": "2026-10-14T11:03:22.765449",
+      "step_id": null,
+      "attempt_id": null,
+      "message": "Mission run evaluation complete (verdict: FAILED). Passed: 0/1, Failed: 1, Blocked: 0, Skipped: 0.",
+      "metadata": {
+        "mission_id": "68454522-325f-4a69-840b-035b5eccad2c",
+        "run_id": "de3bbf16-0b72-4c5c-9114-fcda16228adc",
+        "verdict": "failed",
+        "total_tasks": 1,
+        "passed_tasks": 0,
+        "failed_tasks": 1,
+        "blocked_tasks": 0,
+        "skipped_tasks": 0,
+        "cancelled_tasks": 0,
+        "inconclusive_tasks": 0,
+        "evaluation_version": "1.0",
+        "evaluated_at": "2026-10-14T11:03:22.759049Z",
+        "is_idempotent_replay": false,
+        "requirement_coverage": [
+          {
+            "requirement_id": "REQ-UI-01",
+            "status": "FAILED",
+            "tested_by_tasks": [
+              "ui_click_task"
+            ],
+            "notes": "Failed in verifying task(s): ui_click_task."
+          }
+        ],
+        "root_cause_analysis": [
+          {
+            "task_id": "ui_click_task",
+            "status": "failed",
+            "cause_type": "confirmed",
+            "classification": "confirmed_cause",
+            "diagnostic": "Assertion failure in step 'step_click': Element '#submit-button' not visible within 5000ms",
+            "failed_step_id": "step_click",
+            "failed_action": null,
+            "http_status": null,
+            "failed_assertions": [],
+            "evidence_references": [
+              "65e7c01b-0ddd-4e29-9c36-39868e959dad",
+              "7d75c349-759d-4e4b-a0fc-4b98de7ad930"
+            ],
+            "dependency_chain": [],
+            "suggested_debugging_steps": [
+              "Verify server payload against assertion criteria in step 'step_click'."
+            ],
+            "is_ai_generated": false
+          }
+        ],
+        "executive_summary": "Mission run evaluation complete (verdict: FAILED). Passed: 0/1, Failed: 1, Blocked: 0, Skipped: 0.",
+        "agent_telemetry": {
+          "status": "failed",
+          "verdict": "failed",
+          "duration_s": 0.326406,
+          "evaluated_at": "2026-10-14T11:03:22.759049+00:00",
+          "evaluation_version": "1.0"
+        }
+      }
+    }
+  ],
+  "metadata": {
+    "exported_at": "2026-10-14T11:03:22.907867+00:00",
+    "evaluation": {
+      "mission_id": "68454522-325f-4a69-840b-035b5eccad2c",
+      "run_id": "de3bbf16-0b72-4c5c-9114-fcda16228adc",
+      "verdict": "failed",
+      "total_tasks": 1,
+      "passed_tasks": 0,
+      "failed_tasks": 1,
+      "blocked_tasks": 0,
+      "skipped_tasks": 0,
+      "cancelled_tasks": 0,
+      "inconclusive_tasks": 0,
+      "evaluation_version": "1.0",
+      "evaluated_at": "2026-10-14T11:03:22.759049Z",
+      "is_idempotent_replay": false,
+      "requirement_coverage": [
+        {
+          "requirement_id": "REQ-UI-01",
+          "status": "FAILED",
+          "tested_by_tasks": [
+            "ui_click_task"
+          ],
+          "notes": "Failed in verifying task(s): ui_click_task."
+        }
+      ],
+      "root_cause_analysis": [
+        {
+          "task_id": "ui_click_task",
+          "status": "failed",
+          "cause_type": "confirmed",
+          "classification": "confirmed_cause",
+          "diagnostic": "Assertion failure in step 'step_click': Element '#submit-button' not visible within 5000ms",
+          "failed_step_id": "step_click",
+          "failed_action": null,
+          "http_status": null,
+          "failed_assertions": [],
+          "evidence_references": [
+            "65e7c01b-0ddd-4e29-9c36-39868e959dad",
+            "7d75c349-759d-4e4b-a0fc-4b98de7ad930"
+          ],
+          "dependency_chain": [],
+          "suggested_debugging_steps": [
+            "Verify server payload against assertion criteria in step 'step_click'."
+          ],
+          "is_ai_generated": false
+        }
+      ],
+      "executive_summary": "Mission run evaluation complete (verdict: FAILED). Passed: 0/1, Failed: 1, Blocked: 0, Skipped: 0.",
+      "agent_telemetry": {
+        "status": "failed",
+        "verdict": "failed",
+        "duration_s": 0.326406,
+        "evaluated_at": "2026-10-14T11:03:22.759049+00:00",
+        "evaluation_version": "1.0"
+      }
+    }
+  }
+}

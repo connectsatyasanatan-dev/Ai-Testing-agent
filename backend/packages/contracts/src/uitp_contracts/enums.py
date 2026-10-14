@@ -59,7 +59,21 @@ class TaskStatus(StrEnum):
     SKIPPED = "skipped"
     CANCELLED = "cancelled"
 
+class TaskPriority(StrEnum):
+    """Task priority and criticality level for smoke and regression selection."""
 
+    P0 = "P0"  # Critical journey / smoke test path
+    P1 = "P1"  # High priority / standard regression path
+    P2 = "P2"  # Medium priority / auxiliary feature
+    P3 = "P3"  # Low priority / edge case or non-critical
+
+
+class TestSuiteType(StrEnum):
+    """Test suite selection filter for mission execution."""
+
+    ALL = "all"                 # Full suite: execute all planned tasks
+    SMOKE = "smoke"             # Smoke suite: execute P0 critical tasks + prerequisites
+    REGRESSION = "regression"   # Regression suite: execute regression-eligible tasks + prerequisites
 
 class PlanStatus(StrEnum):
     """Lifecycle status of a test plan version (supports soft-delete)."""

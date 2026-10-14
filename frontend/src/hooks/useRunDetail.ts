@@ -27,13 +27,13 @@ export function useRun(runId: string) {
   });
 }
 
-export function useRunEvents(runId: string) {
+export function useRunEvents(runId: string, isActive = false) {
   return useQuery<RunEvent[], Error>({
     queryKey: ["runs", runId, "events"],
     queryFn: () => getRunEvents(runId),
     enabled: Boolean(runId),
     staleTime: 5_000,
-    refetchInterval: 5_000,
+    refetchInterval: isActive ? 4_000 : false,
   });
 }
 

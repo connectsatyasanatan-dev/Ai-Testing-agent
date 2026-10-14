@@ -16,6 +16,8 @@ import {
   useSubmitPlanReview,
 } from "@/hooks/usePlans";
 import { useProjects } from "@/hooks/useProjects";
+import { useMissionDAG } from "@/hooks/useMissions";
+import { DAGView } from "@/components/missions/DAGView";
 import type { PlanStatus, PlanVersionSummary } from "@/types/plan";
 import styles from "./PlanDetail.module.css";
 
@@ -71,6 +73,8 @@ export default function PlanDetail() {
   } = usePlanVersion(planId, isViewingOlderVersion ? selectedVersion : undefined);
 
   const activePlan = isViewingOlderVersion ? planVersion : latestPlan;
+  const isMissionDAG = activePlan?.adapter_type === "multi_agent_dag";
+  const { data: missionDAG } = useMissionDAG(isMissionDAG ? planId : undefined);
 
   // Modals state
   const [showApproveModal, setShowApproveModal] = useState(false);
@@ -341,11 +345,19 @@ export default function PlanDetail() {
           </div>
         )}
 
-        {/* Plan Steps Sequence List */}
-        <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-4)" }}>
-          <h2 style={{ fontSize: "var(--font-size-lg)", fontWeight: "bold" }}>
-            Test Steps ({activePlan.steps.length})
-          </h2>
+        {/* Plan Steps Sequence List or Mission Task DAG */}
+        {isMissionDAG && missionDAG ? (
+          <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-4)" }}>
+            <h2 style={{ fontSize: "var(--font-size-lg)", fontWeight: "bold" }}>
+              Mission Task DAG ({missionDAG.tasks.length} Tasks)
+            </h2>
+            <DAGView plan={missionDAG} />
+          </div>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-4)" }}>
+            <h2 style={{ fontSize: "var(--font-size-lg)", fontWeight: "bold" }}>
+              Test Steps ({activePlan.steps.length})
+            </h2>
 
           {activePlan.steps.map((step, sIdx) => (
             <div key={sIdx} className={styles.stepCard} id={`step-detail-${sIdx}`}>
@@ -419,6 +431,7 @@ export default function PlanDetail() {
             </div>
           ))}
         </div>
+      )}
 
         {/* Modal: Approve Plan */}
         {showApproveModal && (

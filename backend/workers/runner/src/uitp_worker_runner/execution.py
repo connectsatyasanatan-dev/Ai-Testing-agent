@@ -557,6 +557,7 @@ async def _do_execute_run(
                     current_attempt=current_attempt,
                     status=result.status,
                     error_code=result.error_code,
+                    status_code=result.outputs.get("status_code"),
                 )
 
                 if retry_decision.should_retry:
@@ -648,6 +649,17 @@ async def _do_execute_run(
                 logger.warning("Failed to record audit event for run %s: %s", run.id, audit_exc)
 
             await session.commit()
+            try:
+                from uitp_api.services.evaluation_service import evaluate_and_persist_run
+                await evaluate_and_persist_run(session, run_id=run.id, actor_id=run.requested_by)
+            except Exception as eval_exc:
+                logger.warning("Automatic evaluation failed in worker for run %s: %s", run.id, eval_exc)
+
+            try:
+                from uitp_api.services.report_export_service import export_run_execution_artifacts
+                await export_run_execution_artifacts(session, run_id=run.id)
+            except Exception as exp_exc:
+                logger.debug("Automatic export notification for worker run %s: %s", run.id, exp_exc)
 
     return {"run_id": run.id, "status": run.status, "worker_id": run.worker_id}
 

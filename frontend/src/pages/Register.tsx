@@ -143,7 +143,7 @@ export default function Register() {
 
           {errorMsg && <ErrorMessage title="Registration Failed" message={errorMsg} />}
 
-          <form onSubmit={handleSubmit} className={styles.form} noValidate>
+          <form onSubmit={(e) => { void handleSubmit(e); }} className={styles.form} noValidate>
             <div className={styles.formGroup}>
               <label htmlFor="register-name" className={styles.label}>
                 Full name

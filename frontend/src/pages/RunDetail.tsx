@@ -14,6 +14,8 @@ import {
   useRunArtifacts,
   useRunEvents,
 } from "@/hooks/useRunDetail";
+import { useRunEvaluation } from "@/hooks/useMissions";
+import { MissionEvaluationView } from "@/components/missions/MissionEvaluationView";
 import { cancelRun, getArtifactDownloadUrl } from "@/lib/api-client";
 import styles from "./RunDetail.module.css";
 
@@ -96,7 +98,13 @@ export default function RunDetail() {
   const navigate = useNavigate();
 
   const { data: run, isLoading, error, refetch } = useRun(runId ?? "");
-  const { data: events } = useRunEvents(runId ?? "");
+  const isActive = run?.status === "running" || run?.status === "queued";
+  const isTerminal = Boolean(
+    run && ["passed", "failed", "blocked", "cancelled", "inconclusive"].includes(run.status)
+  );
+
+  const { data: events } = useRunEvents(runId ?? "", isActive);
+  const { data: evaluation } = useRunEvaluation(runId ?? "", isTerminal);
   const { data: artifacts, isLoading: isLoadingArtifacts } = useRunArtifacts(
     runId ?? "",
     true
@@ -264,6 +272,13 @@ export default function RunDetail() {
                 </span>
               </div>
             </div>
+
+            {/* Post-Run Evaluation & Root Cause Analysis (Task 8 & 9) */}
+            {evaluation && (
+              <div style={{ marginBottom: "var(--space-6)" }}>
+                <MissionEvaluationView runId={runId!} evaluation={evaluation} />
+              </div>
+            )}
 
             {/* Step-by-Step Timeline Breakdown */}
             <div className={styles.section}>
