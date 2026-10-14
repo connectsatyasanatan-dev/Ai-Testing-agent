@@ -150,6 +150,7 @@ async def create_and_execute_run(
             )
 
     transport = getattr(request.app.state, "custom_adapter_transport", None)
+    web_adapter = getattr(request.app.state, "custom_web_adapter", None)
     run = await run_service.execute_run_sync(
         session,
         plan_id=plan_id,
@@ -158,7 +159,9 @@ async def create_and_execute_run(
         plan_version=body.plan_version,
         idempotency_key=idem_key,
         transport=transport,
+        web_adapter=web_adapter,
     )
+
     return RunResponse.model_validate(run)
 
 

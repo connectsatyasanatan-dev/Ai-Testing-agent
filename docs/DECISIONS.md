@@ -227,7 +227,24 @@ prevents SSRF, DNS rebinding TOCTOU attacks, disk space exhaustion, and containe
 - AI generation cannot execute directly: every generated plan requires human review and explicit approval.
 - Post-validation strictly drops unsupported actions rather than attempting heuristic repair.
 
+## ADR-017 --- Secure Cross-Layer Runtime Context Propagation
+
+**Status:** Accepted\
+**Decision:**
+1. **Run-Scoped Lifetime & Tenancy Isolation:** Each mission execution initializes an ephemeral `RuntimeContext` strictly bound to the specific `run_id` and `project_id`. State is never shared across runs, tenants, or worker processes.
+2. **Ancestor-Only Scoping:** Tasks can only consume context variables exported by explicit dependency ancestors (direct or transitive parents via `depends_on`). Attempting to read data from an independent or non-ancestor task is rejected before dispatch with `DisallowedContextReferenceError`.
+3. **Strict Declarative Syntax:** Only approved `${context.<var_name>}` expressions are supported. Arbitrary template evaluation, scripting engines, or unapproved namespaces are rejected with `InvalidContextExpressionError`.
+4. **Pre-Adapter Validation Gate:** Missing variables, malformed expressions, disallowed references, and type mismatches (e.g. interpolating non-scalar structures into string templates) are validated immediately before adapter dispatch. Any violation terminates the task with a structured error, preventing partial or corrupt execution, and cascades `BLOCKED` status to downstream tasks.
+5. **Deterministic Export Extraction:** Exports are extracted only from successful task outputs. If an exported JSONPath resolves to null or is missing, the producer task fails with `MissingContextExportError` and publishes nothing. Duplicate export declarations are rejected at plan validation and runtime to prevent overwrite races.
+6. **Multi-Layer Secret Redaction:** Context variables marked with `is_secret=True` are persisted in the `run_contexts` database table with `value="[REDACTED]"`. Unredacted values exist only in transient memory during run execution and are scrubbed from evidence artifacts, response logs, error messages, and timeline events prior to persistence.
+7. **Concurrency-Safe Mutations:** In-memory context operations are serialized with an asyncio lock to ensure deterministic parallel task completion and export publication.
+**Reason:** Enables rich cross-layer multi-agent workflows (e.g. API authentication generating tokens consumed by downstream API checks and Playwright UI tests) while maintaining strict least-privilege scoping, zero credential leakage, and full backwards compatibility with single-plan execution.\
+**Trade-offs & Constraints:**
+- Tasks must declare explicit dependency edges if they intend to share context; hidden coupling is blocked.
+- Secret context variables cannot be retrieved in plaintext from the database after run completion.
+
 ## Open decisions
+
 
 -   **Model-assisted Failure Root Cause Summaries (P5-05):** Define evidence-grounded prompt schema referencing only sanitized step attempt logs and assertion failure traces.
 

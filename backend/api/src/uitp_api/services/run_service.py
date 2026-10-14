@@ -34,7 +34,7 @@ from uitp_api.exceptions import (
     ResourceNotFoundError,
     ValidationFailedError,
 )
-from uitp_api.models.dag import DAGDependency, DAGTask, DAGTaskAttempt
+from uitp_api.models.dag import DAGDependency, DAGTask, DAGTaskAttempt, RunContext
 from uitp_api.models.environment import Environment
 from uitp_api.models.plan import TestPlan, TestStep
 from uitp_api.models.run import Run, RunEvent, StepAttempt
@@ -166,14 +166,23 @@ async def execute_dag_plan(
     transport: httpx.AsyncBaseTransport | None = None,
     execution_policy: Any | None = None,
     run_deadline: float | None = None,
+    web_adapter: Any | None = None,
 ) -> str:
-    """Execute all tasks of a multi-agent DAG plan using DAGTaskScheduler.
+    """Execute all tasks of a multi-agent DAG plan using DAGTaskScheduler and RuntimeContext.
 
-    Loads persisted DAGTask and DAGDependency rows, validates acyclicity,
-    dispatches ready tasks through HttpApiAdapter or PlaywrightAdapter,
-    persists DAGTaskAttempt and StepAttempt rows, cascades failures to BLOCKED,
-    and returns overall status ('passed' or 'failed').
+    Loads persisted DAGTask and DAGDependency rows, validates acyclicity and context declarations,
+    manages run-scoped context extraction and expression resolution, dispatches ready tasks through
+    HttpApiAdapter or PlaywrightAdapter, persists DAGTaskAttempt, StepAttempt, and RunContext rows,
+    cascades failures to BLOCKED, and returns overall status ('passed' or 'failed').
     """
+    from uitp_orchestrator.context import (
+        RuntimeContext,
+        extract_task_exports,
+        redact_sensitive_values,
+        resolve_context_expressions,
+    )
+    from uitp_orchestrator.exceptions import ContextError
+
     # 1. Load persisted DAG tasks and dependency edges
     task_stmt = select(DAGTask).where(or_(DAGTask.plan_id == plan.id, DAGTask.plan_id == plan.plan_id))
     tasks_res = await session.execute(task_stmt)
@@ -232,12 +241,16 @@ async def execute_dag_plan(
             )
         )
 
-    # 3. Validate DAG acyclicity
+    # 3. Validate DAG acyclicity and context export declarations
     try:
-        from uitp_api.services.multi_agent_service import validate_dag_acyclicity
+        from uitp_api.services.multi_agent_service import (
+            validate_dag_acyclicity,
+            validate_dag_context_declarations,
+        )
         validate_dag_acyclicity(dag_tasks)
+        validate_dag_context_declarations(dag_tasks)
     except Exception as val_exc:
-        logger.error("DAG acyclicity or structural validation failed for plan %s: %s", plan.id, val_exc)
+        logger.error("DAG acyclicity or context validation failed for plan %s: %s", plan.id, val_exc)
         session.add(
             RunEvent(
                 id=str(uuid.uuid4()),
@@ -250,10 +263,14 @@ async def execute_dag_plan(
         await session.commit()
         return "failed"
 
-    # 4. Initialize scheduler and execution resources
+    # 4. Initialize run-scoped RuntimeContext and DAG scheduler
+    runtime_context = RuntimeContext(
+        run_id=run.id,
+        tasks=dag_tasks,
+        project_id=plan.project_id,
+    )
     scheduler = DAGTaskScheduler(dag_tasks)
     http_adapter = HttpApiAdapter(transport=transport, execution_policy=execution_policy)
-    web_adapter: Any = None
 
     def _get_web_adapter() -> Any:
         nonlocal web_adapter
@@ -350,135 +367,180 @@ async def execute_dag_plan(
                 task_error: str | None = None
                 task_deadline = min(run_deadline, time.monotonic() + task_schema.timeout_seconds)
 
-                for step_schema in task_schema.steps:
-                    if time.monotonic() >= task_deadline:
-                        task_passed = False
-                        task_error = f"Task '{task_schema.task_id}' exceeded timeout of {task_schema.timeout_seconds}s"
-                        break
+                # Validate context expressions immediately before adapter execution
+                try:
+                    runtime_context.validate_task_expressions(task_schema)
+                except ContextError as ctx_err:
+                    logger.warning("Context validation failed for task %s: %s", task_schema.task_id, ctx_err)
+                    task_passed = False
+                    task_error = f"Context validation failed: {ctx_err}"
 
-                    step_start_time = datetime.now(UTC)
-                    session.add(
-                        RunEvent(
+                task_step_outputs: list[dict[str, Any]] = []
+
+                if task_passed:
+                    task_context = await runtime_context.get_task_context(task_schema.task_id)
+
+                    for step_schema in task_schema.steps:
+                        if time.monotonic() >= task_deadline:
+                            task_passed = False
+                            task_error = f"Task '{task_schema.task_id}' exceeded timeout of {task_schema.timeout_seconds}s"
+                            break
+
+                        step_start_time = datetime.now(UTC)
+                        session.add(
+                            RunEvent(
+                                id=str(uuid.uuid4()),
+                                run_id=run.id,
+                                step_id=step_schema.step_id,
+                                event_type="step_started",
+                                timestamp=step_start_time,
+                                message=f"Starting step '{step_schema.step_id}' in task '{task_schema.task_id}'",
+                                event_metadata={"task_id": task_schema.task_id},
+                            )
+                        )
+                        await session.commit()
+
+                        # Resolve context expressions immediately before dispatching each step
+                        step_dict = step_schema.model_dump()
+                        resolved_step_dict = resolve_context_expressions(step_dict, task_context)
+                        resolved_step = _step_dict_to_contract(resolved_step_dict)
+
+                        step_timeout = min(resolved_step.timeout_seconds, max(1.0, task_deadline - time.monotonic()))
+                        exec_ctx = ExecutionContext(
+                            run_id=run.id,
+                            step_id=resolved_step.step_id,
+                            attempt_number=1,
+                            environment_id=env.id,
+                            base_url=env.base_url,
+                            allowlist=env.allowlist or [],
+                            secret_refs=env.secret_refs or {},
+                            timeout_seconds=step_timeout,
+                        )
+
+                        result: StepExecutionResult
+                        try:
+                            result = await target_adapter.execute_step(resolved_step, exec_ctx)
+                        except Exception as step_exc:
+                            logger.exception("Step %s in task %s raised exception: %s", resolved_step.step_id, task_schema.task_id, step_exc)
+                            result = StepExecutionResult(
+                                status=StepStatus.FAILED,
+                                error_code=ErrorCode.VALIDATION_ERROR,
+                                error_message=f"Adapter execution exception: {type(step_exc).__name__}: {step_exc}",
+                            )
+
+                        task_step_outputs.append(result.outputs)
+
+                        step_finish_time = datetime.now(UTC)
+                        attempt = StepAttempt(
                             id=str(uuid.uuid4()),
                             run_id=run.id,
-                            step_id=step_schema.step_id,
-                            event_type="step_started",
-                            timestamp=step_start_time,
-                            message=f"Starting step '{step_schema.step_id}' in task '{task_schema.task_id}'",
-                            event_metadata={"task_id": task_schema.task_id},
+                            step_id=resolved_step.step_id,
+                            attempt_number=1,
+                            status=result.status.value,
+                            error_code=str(result.error_code) if result.error_code else None,
+                            error_message=result.error_message,
+                            started_at=step_start_time,
+                            finished_at=step_finish_time,
                         )
-                    )
-                    await session.commit()
+                        session.add(attempt)
+                        await session.flush()
 
-                    step_timeout = min(step_schema.timeout_seconds, max(1.0, task_deadline - time.monotonic()))
-                    exec_ctx = ExecutionContext(
-                        run_id=run.id,
-                        step_id=step_schema.step_id,
-                        attempt_number=1,
-                        environment_id=env.id,
-                        base_url=env.base_url,
-                        allowlist=env.allowlist or [],
-                        secret_refs=env.secret_refs or {},
-                        timeout_seconds=step_timeout,
-                    )
-
-                    result: StepExecutionResult
-                    try:
-                        result = await target_adapter.execute_step(step_schema, exec_ctx)
-                    except Exception as step_exc:
-                        logger.exception("Step %s in task %s raised exception: %s", step_schema.step_id, task_schema.task_id, step_exc)
-                        result = StepExecutionResult(
-                            status=StepStatus.FAILED,
-                            error_code=ErrorCode.VALIDATION_ERROR,
-                            error_message=f"Adapter execution exception: {type(step_exc).__name__}: {step_exc}",
-                        )
-
-                    step_finish_time = datetime.now(UTC)
-                    attempt = StepAttempt(
-                        id=str(uuid.uuid4()),
-                        run_id=run.id,
-                        step_id=step_schema.step_id,
-                        attempt_number=1,
-                        status=result.status.value,
-                        error_code=str(result.error_code) if result.error_code else None,
-                        error_message=result.error_message,
-                        started_at=step_start_time,
-                        finished_at=step_finish_time,
-                    )
-                    session.add(attempt)
-                    await session.flush()
-
-                    # Store evidence artifact for attempt
-                    try:
-                        evidence_payload = {
-                            "task_id": task_schema.task_id,
-                            "step_id": step_schema.step_id,
-                            "action": step_schema.action,
-                            "request": {
-                                "method": step_schema.action if step_schema.adapter_type == AdapterType.HTTP_API else "UNKNOWN",
-                                "url": result.outputs.get("url"),
-                                "headers": step_schema.inputs.get("headers"),
-                                "body": step_schema.inputs.get("json") or step_schema.inputs.get("body"),
-                            },
-                            "response": {
-                                "status_code": result.outputs.get("status_code"),
-                                "headers": result.outputs.get("headers"),
-                                "body": result.outputs.get("body"),
-                                "content_type": result.outputs.get("content_type"),
-                                "duration_ms": result.outputs.get("duration_ms"),
-                            },
-                            "assertions": result.outputs.get("assertions"),
-                        }
-                        raw_json = json.dumps(evidence_payload)
-                        await evidence_service.store_artifact(
-                            session,
-                            run_id=run.id,
-                            step_attempt_id=attempt.id,
-                            artifact_type="response_log",
-                            content=raw_json.encode("utf-8"),
-                            content_type="application/json",
-                            redaction_required=True,
-                        )
-
-                        screenshot_bytes = (
-                            result.outputs.get("screenshot_bytes")
-                            or result.outputs.get("failure_screenshot_bytes")
-                        )
-                        if screenshot_bytes and isinstance(screenshot_bytes, bytes):
+                        # Store evidence artifact for attempt with redaction of known secrets
+                        try:
+                            secret_vals = await runtime_context.get_secret_values()
+                            evidence_payload = {
+                                "task_id": task_schema.task_id,
+                                "step_id": resolved_step.step_id,
+                                "action": resolved_step.action,
+                                "request": {
+                                    "method": resolved_step.action if resolved_step.adapter_type == AdapterType.HTTP_API else "UNKNOWN",
+                                    "url": result.outputs.get("url"),
+                                    "headers": resolved_step.inputs.get("headers"),
+                                    "body": resolved_step.inputs.get("json") or resolved_step.inputs.get("body"),
+                                },
+                                "response": {
+                                    "status_code": result.outputs.get("status_code"),
+                                    "headers": result.outputs.get("headers"),
+                                    "body": result.outputs.get("body"),
+                                    "content_type": result.outputs.get("content_type"),
+                                    "duration_ms": result.outputs.get("duration_ms"),
+                                },
+                                "assertions": result.outputs.get("assertions"),
+                            }
+                            sanitized_payload = redact_sensitive_values(evidence_payload, secret_vals)
+                            raw_json = json.dumps(sanitized_payload)
                             await evidence_service.store_artifact(
                                 session,
                                 run_id=run.id,
                                 step_attempt_id=attempt.id,
-                                artifact_type="screenshot",
-                                content=screenshot_bytes,
-                                content_type="image/png",
-                                redaction_required=False,
+                                artifact_type="response_log",
+                                content=raw_json.encode("utf-8"),
+                                content_type="application/json",
+                                redaction_required=True,
                             )
-                    except Exception as ev_exc:
-                        logger.debug("Evidence storage notification: %s", ev_exc)
 
-                    session.add(
-                        RunEvent(
-                            id=str(uuid.uuid4()),
-                            run_id=run.id,
-                            step_id=step_schema.step_id,
-                            attempt_id=attempt.id,
-                            event_type=f"step_{result.status.value}",
-                            timestamp=step_finish_time,
-                            message=result.error_message or f"Step '{step_schema.step_id}' {result.status.value}",
-                            event_metadata={
-                                "task_id": task_schema.task_id,
-                                "status_code": result.outputs.get("status_code"),
-                                "duration_ms": result.outputs.get("duration_ms"),
-                            },
+                            screenshot_bytes = (
+                                result.outputs.get("screenshot_bytes")
+                                or result.outputs.get("failure_screenshot_bytes")
+                            )
+                            if screenshot_bytes and isinstance(screenshot_bytes, bytes):
+                                await evidence_service.store_artifact(
+                                    session,
+                                    run_id=run.id,
+                                    step_attempt_id=attempt.id,
+                                    artifact_type="screenshot",
+                                    content=screenshot_bytes,
+                                    content_type="image/png",
+                                    redaction_required=False,
+                                )
+                        except Exception as ev_exc:
+                            logger.debug("Evidence storage notification: %s", ev_exc)
+
+                        session.add(
+                            RunEvent(
+                                id=str(uuid.uuid4()),
+                                run_id=run.id,
+                                step_id=resolved_step.step_id,
+                                attempt_id=attempt.id,
+                                event_type=f"step_{result.status.value}",
+                                timestamp=step_finish_time,
+                                message=result.error_message or f"Step '{resolved_step.step_id}' {result.status.value}",
+                                event_metadata={
+                                    "task_id": task_schema.task_id,
+                                    "status_code": result.outputs.get("status_code"),
+                                    "duration_ms": result.outputs.get("duration_ms"),
+                                },
+                            )
                         )
-                    )
-                    await session.commit()
+                        await session.commit()
 
-                    if result.status != StepStatus.PASSED:
+                        if result.status != StepStatus.PASSED:
+                            task_passed = False
+                            task_error = result.error_message or f"Step '{resolved_step.step_id}' failed"
+                            break
+
+                # Extract and publish context exports only if task succeeded
+                if task_passed and task_schema.exports:
+                    try:
+                        extracted_exports = extract_task_exports(task_schema, task_step_outputs)
+                        await runtime_context.publish_exports(task_schema.task_id, extracted_exports)
+
+                        # Persist exports to database run_contexts table (redacting secret values)
+                        for exp_key, (exp_val, is_sec) in extracted_exports.items():
+                            stored_db_val = "[REDACTED]" if is_sec else str(exp_val)
+                            db_ctx = RunContext(
+                                id=str(uuid.uuid4()),
+                                run_id=run.id,
+                                key=exp_key,
+                                value=stored_db_val,
+                                is_secret=is_sec,
+                                source_task_id=task_schema.task_id,
+                            )
+                            session.add(db_ctx)
+                    except ContextError as exp_err:
+                        logger.warning("Export extraction failed for task %s: %s", task_schema.task_id, exp_err)
                         task_passed = False
-                        task_error = result.error_message or f"Step '{step_schema.step_id}' failed"
-                        break
+                        task_error = f"Export extraction failed: {exp_err}"
 
                 # Update task outcome
                 task_finish_time = datetime.now(UTC)
@@ -501,15 +563,17 @@ async def execute_dag_plan(
                 else:
                     overall_status = "failed"
                     task_attempt.status = "failed"
-                    task_attempt.error_message = task_error
+                    secret_vals = await runtime_context.get_secret_values()
+                    safe_task_error = redact_sensitive_values(task_error, secret_vals) if task_error else None
+                    task_attempt.error_message = safe_task_error
                     session.add(
                         RunEvent(
                             id=str(uuid.uuid4()),
                             run_id=run.id,
                             event_type="task_failed",
                             timestamp=task_finish_time,
-                            message=f"Task '{task_schema.task_id}' failed: {task_error}",
-                            event_metadata={"task_id": task_schema.task_id, "error": task_error},
+                            message=f"Task '{task_schema.task_id}' failed: {safe_task_error}",
+                            event_metadata={"task_id": task_schema.task_id, "error": safe_task_error},
                         )
                     )
                     # Cascade BLOCKED to all downstream tasks
@@ -521,7 +585,7 @@ async def execute_dag_plan(
                             task_id=blocked_id,
                             attempt_number=1,
                             status="blocked",
-                            error_message=f"Prerequisite task '{task_schema.task_id}' failed: {task_error}",
+                            error_message=f"Prerequisite task '{task_schema.task_id}' failed: {safe_task_error}",
                             worker_id=worker_id,
                             started_at=task_finish_time,
                             finished_at=task_finish_time,
@@ -538,6 +602,7 @@ async def execute_dag_plan(
                             )
                         )
                     await session.commit()
+
 
     finally:
         if web_adapter is not None:
@@ -558,6 +623,7 @@ async def execute_run_sync(
     plan_version: int | None = None,
     idempotency_key: str | None = None,
     transport: httpx.AsyncBaseTransport | None = None,
+    web_adapter: Any | None = None,
 ) -> Run:
     """Execute a test run synchronously.
 
@@ -670,8 +736,10 @@ async def execute_run_sync(
             actor_id=actor_id,
             worker_id="in-process-sync-worker",
             transport=transport,
+            web_adapter=web_adapter,
             run_deadline=run_deadline,
         )
+
         run.status = overall_status
         run.finished_at = datetime.now(UTC)
         session.add(

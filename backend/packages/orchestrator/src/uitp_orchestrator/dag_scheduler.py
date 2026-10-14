@@ -12,68 +12,18 @@ SECURITY INVARIANTS:
 """
 from __future__ import annotations
 
-import re
-from typing import Any
-
 from uitp_contracts.enums import TaskStatus
 from uitp_contracts.plan import ContextExportDef, DAGTaskSchema
-
-CONTEXT_VAR_REGEX = re.compile(r"\$\{context\.([a-zA-Z0-9_]+)\}")
-
-
-def resolve_context_expressions(obj: Any, context_values: dict[str, Any]) -> Any:
-    """Recursively resolve '${context.<key>}' expressions against context_values.
-
-    Leaves unresolvable expressions unchanged.
-    """
-    if isinstance(obj, str):
-        def _replace_match(match: re.Match) -> str:
-            var_name = match.group(1)
-            if var_name in context_values:
-                val = context_values[var_name]
-                return str(val)
-            return match.group(0)
-
-        return CONTEXT_VAR_REGEX.sub(_replace_match, obj)
-
-    elif isinstance(obj, dict):
-        return {k: resolve_context_expressions(v, context_values) for k, v in obj.items()}
-
-    elif isinstance(obj, list):
-        return [resolve_context_expressions(item, context_values) for item in obj]
-
-    return obj
+from uitp_orchestrator.context import (
+    CONTEXT_VAR_REGEX,
+    RuntimeContext,
+    extract_context_exports,
+    extract_task_exports,
+    redact_sensitive_values,
+    resolve_context_expressions,
+)
 
 
-def extract_context_exports(
-    step_output: dict[str, Any],
-    exports_def: dict[str, ContextExportDef],
-) -> dict[str, tuple[str, bool]]:
-    """Extract exported context variables from step outputs.
-
-    Returns:
-        Mapping of export_key -> (string_value, is_secret).
-    """
-    extracted: dict[str, tuple[str, bool]] = {}
-
-    for export_key, export_def in exports_def.items():
-        json_path = export_def.json_path.strip()
-        # Simple JSON path resolution for standard expressions (e.g. $.id, $.token, $.data.id)
-        path_parts = json_path.lstrip("$.").split(".")
-        current: Any = step_output
-        found = True
-
-        for part in path_parts:
-            if isinstance(current, dict) and part in current:
-                current = current[part]
-            else:
-                found = False
-                break
-
-        if found and current is not None:
-            extracted[export_key] = (str(current), export_def.is_secret)
-
-    return extracted
 
 
 class DAGTaskScheduler:

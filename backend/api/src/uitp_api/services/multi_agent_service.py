@@ -89,6 +89,34 @@ def validate_dag_acyclicity(tasks: list[DAGTaskSchema]) -> list[str]:
     return topological_order
 
 
+def validate_dag_context_declarations(tasks: list[DAGTaskSchema]) -> None:
+    """Validate declared exports across tasks in a mission DAG.
+
+    Ensures:
+    1. Export keys are alphanumeric/underscore.
+    2. Export keys are mutually unique across all tasks in the DAG (preventing overwrite races).
+    3. JSONPath expressions are non-empty.
+    """
+    import re
+
+    seen_exports: dict[str, str] = {}
+    for task in tasks:
+        for exp_key, exp_def in task.exports.items():
+            if not exp_key or not re.match(r"^[a-zA-Z0-9_]+$", exp_key):
+                raise ValidationError(
+                    f"Invalid export key '{exp_key}' in task '{task.task_id}'. "
+                    "Must contain only letters, numbers, and underscores."
+                )
+            if exp_key in seen_exports:
+                raise ValidationError(
+                    f"Duplicate export key '{exp_key}' declared by tasks '{seen_exports[exp_key]}' "
+                    f"and '{task.task_id}'. Export keys must be unique within a mission plan."
+                )
+            if not exp_def.json_path or not exp_def.json_path.strip():
+                raise ValidationError(f"Export '{exp_key}' in task '{task.task_id}' has empty json_path.")
+            seen_exports[exp_key] = task.task_id
+
+
 # ── Supervisor / Planner Prompt Construction ──────────────────────────────────
 
 def _build_supervisor_system_prompt() -> str:
@@ -225,8 +253,9 @@ async def plan_mission_dag(
         except Exception as exc:
             raise ValidationError(f"Invalid task schema generated: {exc}")
 
-    # 5. Validate DAG acyclicity
+    # 5. Validate DAG acyclicity and context export declarations
     validate_dag_acyclicity(parsed_tasks)
+    validate_dag_context_declarations(parsed_tasks)
 
     # 6. Persist as TestPlan (Draft) and DAG tables
     root_plan_id = mission_id

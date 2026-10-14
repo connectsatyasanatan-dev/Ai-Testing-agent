@@ -49,3 +49,32 @@ class WorkerExecutionError(OrchestratorError):
 
 class RunTimeoutError(OrchestratorError):
     """Raised when a test run exceeds its maximum allocated execution window."""
+
+
+class ContextError(OrchestratorError):
+    """Base exception for runtime context extraction, scoping, and resolution errors."""
+
+
+class MissingContextVariableError(ContextError):
+    """Raised when a referenced context variable is missing or undefined."""
+
+
+class MissingContextExportError(ContextError):
+    """Raised when a task's declared export cannot be resolved from step outputs or is null."""
+
+
+class DisallowedContextReferenceError(ContextError):
+    """Raised when a task references a context variable from a task it does not depend on."""
+
+
+class InvalidContextExpressionError(ContextError):
+    """Raised when a malformed or prohibited template expression is encountered."""
+
+
+class ContextTypeMismatchError(ContextError):
+    """Raised when an expression resolution results in an incompatible or unconvertible type."""
+
+
+class DuplicateContextExportError(ContextError):
+    """Raised when an export key conflicts with another task or attempts an unexpected overwrite."""
+
