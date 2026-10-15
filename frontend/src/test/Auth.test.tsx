@@ -74,17 +74,17 @@ describe("Auth Flow — Login & Register Pages", () => {
     expect(passwordInput.type).toBe("password");
   });
 
-  it("quick-fills credentials when demo pills are clicked", () => {
+  it("updates email and password inputs as user types", () => {
     renderWithClient("/login");
-
-    const adminPill = screen.getByRole("button", { name: /Admin/i });
-    fireEvent.click(adminPill);
 
     const emailInput = screen.getByLabelText<HTMLInputElement>(/Email address/i);
     const passwordInput = screen.getByLabelText<HTMLInputElement>(/^Password/i);
 
-    expect(emailInput.value).toBe("admin@example.com");
-    expect(passwordInput.value).toBe("AdminPassword123!");
+    fireEvent.change(emailInput, { target: { value: "qa_engineer@example.com" } });
+    fireEvent.change(passwordInput, { target: { value: "MySecurePassword123!" } });
+
+    expect(emailInput.value).toBe("qa_engineer@example.com");
+    expect(passwordInput.value).toBe("MySecurePassword123!");
   });
 
   it("submits login form and calls api login", async () => {

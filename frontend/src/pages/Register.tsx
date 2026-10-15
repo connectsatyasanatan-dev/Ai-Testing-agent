@@ -27,7 +27,7 @@ function EyeIcon({ visible }: { visible: boolean }) {
 
 export default function Register() {
   const navigate = useNavigate();
-  const { register, login, isRegistering } = useAuth();
+  const { register, isRegistering } = useAuth();
 
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
@@ -57,9 +57,14 @@ export default function Register() {
         password,
         full_name: fullName.trim() || undefined,
       });
-      // Automatically log in with new credentials
-      await login({ email: email.trim(), password });
-      navigate("/", { replace: true });
+      // Navigate to /login with registered credentials and success message
+      navigate("/login", {
+        replace: true,
+        state: {
+          registeredEmail: email.trim(),
+          successMsg: "Account created successfully! Please sign in with your new credentials.",
+        },
+      });
     } catch (err) {
       setErrorMsg(
         err instanceof Error

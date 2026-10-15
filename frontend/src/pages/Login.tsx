@@ -1,7 +1,7 @@
 /**
  * Login.tsx — Enterprise SaaS Authentication Screen.
  */
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { ErrorMessage } from "@/components/ui/ErrorMessage";
 import { Spinner } from "@/components/ui/Spinner";
@@ -57,20 +57,35 @@ export default function Login() {
   const location = useLocation();
   const { login, isLoggingIn } = useAuth();
 
-  const [email, setEmail] = useState("");
+  const state = location.state as {
+    from?: { pathname?: string };
+    registeredEmail?: string;
+    successMsg?: string;
+  } | null;
+  const from = state?.from?.pathname || "/";
+
+  const [email, setEmail] = useState(state?.registeredEmail || "");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [rememberMe, setRememberMe] = useState(true);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [successMsg, setSuccessMsg] = useState<string | null>(state?.successMsg || null);
 
-  const state = location.state as { from?: { pathname?: string } } | null;
-  const from = state?.from?.pathname || "/";
+  useEffect(() => {
+    if (state?.registeredEmail) {
+      setEmail(state.registeredEmail);
+    }
+    if (state?.successMsg) {
+      setSuccessMsg(state.successMsg);
+    }
+  }, [state]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!email.trim() || !password) return;
 
     setErrorMsg(null);
+    setSuccessMsg(null);
     try {
       await login({ email: email.trim(), password });
       navigate(from, { replace: true });
@@ -81,12 +96,6 @@ export default function Login() {
           : "Invalid email or password. Please verify and try again."
       );
     }
-  };
-
-  const handleQuickFill = (demoEmail: string, demoPass: string) => {
-    setEmail(demoEmail);
-    setPassword(demoPass);
-    setErrorMsg(null);
   };
 
   return (
@@ -169,6 +178,27 @@ export default function Login() {
             </p>
           </div>
 
+          {successMsg && !errorMsg && (
+            <div
+              role="status"
+              style={{
+                marginBottom: "var(--space-4)",
+                padding: "var(--space-3) var(--space-4)",
+                background: "rgba(34, 197, 94, 0.12)",
+                border: "1px solid rgba(34, 197, 94, 0.35)",
+                borderRadius: "var(--radius-md)",
+                color: "#16a34a",
+                fontSize: "var(--font-size-sm)",
+                display: "flex",
+                alignItems: "center",
+                gap: "var(--space-2)",
+              }}
+            >
+              <span>✅</span>
+              <span>{successMsg}</span>
+            </div>
+          )}
+
           {errorMsg && <ErrorMessage title="Authentication Failed" message={errorMsg} />}
 
           <form onSubmit={(e) => { void handleSubmit(e); }} className={styles.form} noValidate>
@@ -243,27 +273,6 @@ export default function Login() {
               )}
             </button>
           </form>
-
-          {/* Quick fill demo accounts */}
-          <div className={styles.demoSection}>
-            <span className={styles.demoLabel}>Demo Accounts:</span>
-            <div className={styles.demoPills}>
-              <button
-                type="button"
-                className={styles.demoPill}
-                onClick={() => handleQuickFill("admin@example.com", "AdminPassword123!")}
-              >
-                Admin
-              </button>
-              <button
-                type="button"
-                className={styles.demoPill}
-                onClick={() => handleQuickFill("dev@example.com", "DevPassword123!")}
-              >
-                Developer
-              </button>
-            </div>
-          </div>
 
           <div className={styles.formFooter}>
             Don't have an account?{" "}
