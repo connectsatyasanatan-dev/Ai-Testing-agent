@@ -89,11 +89,10 @@ export function Sidebar({ currentProjectId }: SidebarProps) {
         path === `/projects/${currentProjectId}/`,
     },
     {
-      to: `${base}/plans`,
-      label: "Test Plans",
-      icon: <PlansIcon />,
-      isActive: (path: string) =>
-        path.startsWith("/plans") || path.includes("/plans"),
+      to: `${base}/environments`,
+      label: "Environments",
+      icon: <EnvironmentsIcon />,
+      isActive: (path: string) => path.includes("/environments"),
     },
     {
       to: `${base}/missions/new`,
@@ -103,17 +102,18 @@ export function Sidebar({ currentProjectId }: SidebarProps) {
         path.startsWith("/missions") || path.includes("/missions"),
     },
     {
+      to: `${base}/plans`,
+      label: "Test Plans",
+      icon: <PlansIcon />,
+      isActive: (path: string) =>
+        path.startsWith("/plans") || path.includes("/plans"),
+    },
+    {
       to: `${base}/runs`,
       label: "Test Runs",
       icon: <RunsIcon />,
       isActive: (path: string) =>
         path.startsWith("/runs") || path.includes("/runs"),
-    },
-    {
-      to: `${base}/environments`,
-      label: "Environments",
-      icon: <EnvironmentsIcon />,
-      isActive: (path: string) => path.includes("/environments"),
     },
     {
       to: `${base}/settings`,
