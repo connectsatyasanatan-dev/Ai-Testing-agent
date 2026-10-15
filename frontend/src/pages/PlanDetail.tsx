@@ -16,7 +16,8 @@ import {
   useSubmitPlanReview,
 } from "@/hooks/usePlans";
 import { useProjects } from "@/hooks/useProjects";
-import { useMissionDAG } from "@/hooks/useMissions";
+import { useEnvironments } from "@/hooks/useEnvironments";
+import { useMissionDAG, useCreateRun } from "@/hooks/useMissions";
 import { DAGView } from "@/components/missions/DAGView";
 import type { PlanStatus, PlanVersionSummary } from "@/types/plan";
 import styles from "./PlanDetail.module.css";
@@ -81,6 +82,9 @@ export default function PlanDetail() {
   const [showRejectModal, setShowRejectModal] = useState(false);
   const [rejectionReason, setRejectionReason] = useState("");
   const [showArchiveModal, setShowArchiveModal] = useState(false);
+  const [showRunModal, setShowRunModal] = useState(false);
+  const [selectedEnvId, setSelectedEnvId] = useState<string>("");
+  const [runDispatchError, setRunDispatchError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
 
   // Mutations
@@ -88,6 +92,29 @@ export default function PlanDetail() {
   const submitReviewMutation = useSubmitPlanReview(planId);
   const rejectMutation = useRejectPlan(planId);
   const archiveMutation = useArchivePlan(planId);
+  const createRunMutation = useCreateRun(planId ?? "");
+
+  const { data: envsData } = useEnvironments(currentProjectId ?? "");
+  const environments = envsData?.items?.filter((e) => e.status === "active") ?? [];
+
+  const handleLaunchRun = async () => {
+    const envId = selectedEnvId || environments[0]?.id;
+    if (!envId) {
+      setRunDispatchError("Please select a target environment for execution.");
+      return;
+    }
+    setRunDispatchError(null);
+    try {
+      const newRun = await createRunMutation.mutateAsync({
+        environment_id: envId,
+        suite_type: "all",
+      });
+      setShowRunModal(false);
+      navigate(`/runs/${newRun.id}`);
+    } catch (err) {
+      setRunDispatchError(err instanceof Error ? err.message : "Failed to dispatch test run.");
+    }
+  };
 
   const handleApprove = async () => {
     if (!activePlan) return;
@@ -280,10 +307,15 @@ export default function PlanDetail() {
 
             {isApproved && (
               <>
-                <Link to={getRunsPath()} className={`${styles.btn} ${styles.btnPrimary}`} id="execute-run-btn">
+                <button
+                  type="button"
+                  className={`${styles.btn} ${styles.btnPrimary}`}
+                  onClick={() => setShowRunModal(true)}
+                  id="execute-run-btn"
+                >
                   <span>▶️</span>
                   <span>Execute Test Run</span>
-                </Link>
+                </button>
                 <Link to={getEditPath()} className={`${styles.btn} ${styles.btnSecondary}`} id="new-version-btn">
                   <span>➕</span>
                   <span>Create New Version</span>
@@ -531,6 +563,64 @@ export default function PlanDetail() {
                   id="confirm-archive-btn"
                 >
                   {archiveMutation.isPending ? "Archiving..." : "Archive Plan"}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+        {/* Modal: Execute Run */}
+        {showRunModal && (
+          <div className={styles.modalOverlay} role="dialog" aria-modal="true">
+            <div className={styles.modal}>
+              <h3 className={styles.modalTitle}>Launch Test Run</h3>
+              <p style={{ fontSize: "var(--font-size-sm)", color: "var(--color-foreground-muted)" }}>
+                Select an environment to execute this approved test plan.
+              </p>
+              {runDispatchError && (
+                <div style={{ color: "#ef4444", marginBottom: "var(--space-2)", fontSize: "var(--font-size-sm)" }}>
+                  {runDispatchError}
+                </div>
+              )}
+              <div style={{ margin: "var(--space-4) 0", display: "flex", flexDirection: "column", gap: "var(--space-2)" }}>
+                <label style={{ fontSize: "var(--font-size-xs)", fontWeight: 600 }}>Target Environment</label>
+                <select
+                  style={{
+                    padding: "var(--space-2)",
+                    borderRadius: "var(--radius-md)",
+                    border: "1px solid var(--color-border)",
+                    backgroundColor: "var(--color-surface, #1e293b)",
+                    color: "inherit"
+                  }}
+                  value={selectedEnvId || environments[0]?.id || ""}
+                  onChange={(e) => setSelectedEnvId(e.target.value)}
+                >
+                  {environments.length === 0 ? (
+                    <option value="">No active environments available</option>
+                  ) : (
+                    environments.map((env) => (
+                      <option key={env.id} value={env.id}>
+                        {env.name} ({env.base_url})
+                      </option>
+                    ))
+                  )}
+                </select>
+              </div>
+              <div className={styles.modalActions}>
+                <button
+                  type="button"
+                  className={`${styles.btn} ${styles.btnSecondary}`}
+                  onClick={() => setShowRunModal(false)}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  className={`${styles.btn} ${styles.btnPrimary}`}
+                  onClick={() => void handleLaunchRun()}
+                  disabled={createRunMutation.isPending || environments.length === 0}
+                  id="confirm-launch-btn"
+                >
+                  {createRunMutation.isPending ? "Launching..." : "Launch Run →"}
                 </button>
               </div>
             </div>

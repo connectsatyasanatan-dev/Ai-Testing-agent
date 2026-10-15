@@ -18,6 +18,7 @@ import {
   useUpdateEnvironment,
 } from "@/hooks/useEnvironments";
 import { useProjects } from "@/hooks/useProjects";
+import { CreateProjectModal } from "@/components/modals/CreateProjectModal";
 import type {
   CreateEnvironmentInput,
   Environment,
@@ -38,6 +39,7 @@ export default function Environments() {
 
   // Modals state
   const [isCreateOpen, setIsCreateOpen] = useState<boolean>(false);
+  const [isCreateProjectOpen, setIsCreateProjectOpen] = useState<boolean>(false);
   const [editingEnv, setEditingEnv] = useState<Environment | null>(null);
   const [deletingEnv, setDeletingEnv] = useState<Environment | null>(null);
 
@@ -89,7 +91,13 @@ export default function Environments() {
           </Link>
           <Button
             variant="primary"
-            onClick={() => setIsCreateOpen(true)}
+            onClick={() => {
+              if (!projectId) {
+                setIsCreateProjectOpen(true);
+              } else {
+                setIsCreateOpen(true);
+              }
+            }}
             id="create-environment-btn"
           >
             + New Environment
@@ -118,14 +126,20 @@ export default function Environments() {
               ))}
             </select>
           ) : (
-            <input
-              id="project-id-input"
-              type="text"
-              className={styles.projectInput}
-              value={projectId}
-              onChange={(e) => setSelectedProjectId(e.target.value.trim())}
-              placeholder="Enter project UUID"
-            />
+            <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+              <input
+                id="project-id-input"
+                type="text"
+                className={styles.projectInput}
+                value={projectId}
+                onChange={(e) => setSelectedProjectId(e.target.value.trim())}
+                placeholder="No project active"
+                disabled
+              />
+              <Button size="sm" variant="outline" onClick={() => setIsCreateProjectOpen(true)}>
+                + New Project
+              </Button>
+            </div>
           )}
         </div>
 
@@ -140,6 +154,24 @@ export default function Environments() {
           </label>
         </div>
       </div>
+
+      {/* Zero projects state */}
+      {!isLoading && projects.length === 0 && (
+        <Card>
+          <CardBody>
+            <EmptyState
+              icon="📁"
+              title="No Project Found"
+              description="Test environments must belong to a Project. Please create your first project before configuring environments."
+              action={
+                <Button variant="primary" onClick={() => setIsCreateProjectOpen(true)}>
+                  + Create First Project
+                </Button>
+              }
+            />
+          </CardBody>
+        </Card>
+      )}
 
       {/* Main Content Area */}
       {isLoading && (
@@ -291,6 +323,7 @@ export default function Environments() {
         <EnvironmentFormModal
           title="Create New Environment"
           isOpen={isCreateOpen}
+          hasProject={Boolean(projectId)}
           onClose={() => setIsCreateOpen(false)}
           onSubmit={(input) => {
             void createMutation.mutateAsync(input).then(() => {
@@ -307,6 +340,7 @@ export default function Environments() {
         <EnvironmentFormModal
           title={`Edit: ${editingEnv.name}`}
           isOpen={Boolean(editingEnv)}
+          hasProject={Boolean(projectId)}
           initialData={editingEnv}
           onClose={() => setEditingEnv(null)}
           onSubmit={(input) => {
@@ -369,6 +403,12 @@ export default function Environments() {
           </div>
         </div>
       )}
+
+      {/* Create Project Modal */}
+      <CreateProjectModal
+        isOpen={isCreateProjectOpen}
+        onClose={() => setIsCreateProjectOpen(false)}
+      />
     </div>
   );
 }
@@ -378,6 +418,7 @@ export default function Environments() {
 interface EnvironmentFormModalProps {
   title: string;
   isOpen: boolean;
+  hasProject: boolean;
   initialData?: Environment | null;
   onClose: () => void;
   onSubmit: (input: CreateEnvironmentInput) => void;
@@ -388,6 +429,7 @@ interface EnvironmentFormModalProps {
 function EnvironmentFormModal({
   title,
   isOpen,
+  hasProject,
   initialData,
   onClose,
   onSubmit,
@@ -501,6 +543,11 @@ function EnvironmentFormModal({
 
         <form onSubmit={handleSubmit} className={styles.modalForm}>
           <div className={styles.modalBody}>
+            {!hasProject && (
+              <div className={styles.modalAlert}>
+                ⚠️ No project selected. Please select or create a project before saving an environment.
+              </div>
+            )}
             {apiError && <div className={styles.modalAlert}>{apiError}</div>}
 
             <div className={styles.formGroup}>
@@ -528,7 +575,7 @@ function EnvironmentFormModal({
                 className={`${styles.input} ${errors.baseUrl ? styles.inputError : ""}`}
                 value={baseUrl}
                 onChange={(e) => setBaseUrl(e.target.value)}
-                placeholder="https://api.staging.example.com"
+                placeholder="http://localhost:8000"
               />
               {errors.baseUrl && (
                 <span className={styles.fieldError}>{errors.baseUrl}</span>
@@ -562,10 +609,10 @@ function EnvironmentFormModal({
                 rows={3}
                 value={allowlistText}
                 onChange={(e) => setAllowlistText(e.target.value)}
-                placeholder={"api.example.com:443\nauth.example.com"}
+                placeholder={"localhost:8000\nlocalhost:5173\n127.0.0.1:8000"}
               />
               <span className={styles.helpText}>
-                External network targets required during test steps must match this allowlist.
+                Target hosts allowed for test execution (e.g. localhost:8000, localhost:5173).
               </span>
             </div>
 
@@ -625,7 +672,12 @@ function EnvironmentFormModal({
             >
               Cancel
             </Button>
-            <Button type="submit" variant="primary" loading={isLoading}>
+            <Button
+              type="submit"
+              variant="primary"
+              loading={isLoading}
+              disabled={!hasProject || isLoading}
+            >
               Save Environment
             </Button>
           </div>

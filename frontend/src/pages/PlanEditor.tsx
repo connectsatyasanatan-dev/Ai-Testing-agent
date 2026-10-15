@@ -562,19 +562,76 @@ export default function PlanEditor() {
 
                       {/* Adapter Specific Input Fields */}
                       {adapterType === "http_api" ? (
-                        <div className={styles.formGroup}>
-                          <label htmlFor={`step-${sIdx}-path`} className={styles.label}>
-                            Path / Endpoint *
-                          </label>
-                          <input
-                            id={`step-${sIdx}-path`}
-                            type="text"
-                            className={styles.input}
-                            placeholder="/api/v1/..."
-                            value={String(step.inputs?.path || "")}
-                            onChange={(e) => updateStepInput(sIdx, "path", e.target.value)}
-                          />
-                        </div>
+                        <>
+                          <div className={styles.formGroup}>
+                            <label htmlFor={`step-${sIdx}-path`} className={styles.label}>
+                              Path / Endpoint *
+                            </label>
+                            <input
+                              id={`step-${sIdx}-path`}
+                              type="text"
+                              className={styles.input}
+                              placeholder="/api/..."
+                              value={String(step.inputs?.path || "")}
+                              onChange={(e) => updateStepInput(sIdx, "path", e.target.value)}
+                            />
+                          </div>
+
+                          <div className={styles.formGroup}>
+                            <label htmlFor={`step-${sIdx}-headers`} className={styles.label}>
+                              Headers (Optional JSON)
+                            </label>
+                            <input
+                              id={`step-${sIdx}-headers`}
+                              type="text"
+                              className={styles.input}
+                              placeholder='{"Authorization": "Bearer ..."}'
+                              value={
+                                typeof step.inputs?.headers === "object"
+                                  ? JSON.stringify(step.inputs?.headers)
+                                  : String(step.inputs?.headers || "")
+                              }
+                              onChange={(e) => {
+                                const val = e.target.value;
+                                try {
+                                  updateStepInput(sIdx, "headers", JSON.parse(val));
+                                } catch {
+                                  updateStepInput(sIdx, "headers", val);
+                                }
+                              }}
+                            />
+                          </div>
+
+                          {["post", "put", "patch"].includes(step.action.toLowerCase()) && (
+                            <div className={styles.formGroup} style={{ gridColumn: "1 / -1" }}>
+                              <label htmlFor={`step-${sIdx}-body`} className={styles.label}>
+                                Request Body (JSON)
+                              </label>
+                              <textarea
+                                id={`step-${sIdx}-body`}
+                                className={styles.textarea}
+                                rows={3}
+                                placeholder='{"email": "admin@example.com", "password": "..."}'
+                                value={
+                                  typeof step.inputs?.json === "object"
+                                    ? JSON.stringify(step.inputs?.json, null, 2)
+                                    : typeof step.inputs?.body === "object"
+                                    ? JSON.stringify(step.inputs?.body, null, 2)
+                                    : String(step.inputs?.json || step.inputs?.body || "")
+                                }
+                                onChange={(e) => {
+                                  const val = e.target.value;
+                                  try {
+                                    const parsed = JSON.parse(val);
+                                    updateStepInput(sIdx, "json", parsed);
+                                  } catch {
+                                    updateStepInput(sIdx, "json", val);
+                                  }
+                                }}
+                              />
+                            </div>
+                          )}
+                        </>
                       ) : (
                         <>
                           {step.action === "navigate" ? (
