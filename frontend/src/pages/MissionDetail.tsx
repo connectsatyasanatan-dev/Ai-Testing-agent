@@ -13,6 +13,7 @@ import { useEnvironments } from "@/hooks/useEnvironments";
 import { useApproveMission, useCreateRun, useMissionDAG } from "@/hooks/useMissions";
 import { usePlan } from "@/hooks/usePlans";
 import { useProjects } from "@/hooks/useProjects";
+import { formatUtcDateTime } from "@/lib/date";
 import type { SuiteType } from "@/types/mission";
 import styles from "./MissionDetail.module.css";
 
@@ -240,11 +241,7 @@ export default function MissionDetail() {
               <div className={styles.metaItem} style={{ color: "#16a34a" }}>
                 <span>Approved:</span>
                 <strong>
-                  {planRecord?.approved_at
-                    ? new Date(planRecord.approved_at).toLocaleString()
-                    : missionPlan?.approved_at
-                    ? new Date(missionPlan.approved_at).toLocaleString()
-                    : new Date().toLocaleString()}
+                  {formatUtcDateTime(planRecord?.approved_at || missionPlan?.approved_at || new Date().toISOString())}
                 </strong>
               </div>
             )}

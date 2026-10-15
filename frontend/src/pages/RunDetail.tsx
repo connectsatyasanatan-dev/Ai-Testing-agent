@@ -18,32 +18,15 @@ import {
 import { useRunEvaluation } from "@/hooks/useMissions";
 import { MissionEvaluationView } from "@/components/missions/MissionEvaluationView";
 import { cancelRun, getArtifactDownloadUrl } from "@/lib/api-client";
+import { formatUtcDateTime, formatUtcDuration } from "@/lib/date";
 import styles from "./RunDetail.module.css";
 
 function formatTimestamp(isoString?: string | null): string {
-  if (!isoString) return "—";
-  try {
-    const date = new Date(isoString);
-    return `${date.toLocaleDateString()} ${date.toLocaleTimeString()}`;
-  } catch {
-    return isoString;
-  }
+  return formatUtcDateTime(isoString);
 }
 
-function formatDuration(
-  startedAt?: string | null,
-  finishedAt?: string | null
-): string {
-  if (!startedAt || !finishedAt) return "—";
-  try {
-    const start = new Date(startedAt).getTime();
-    const finish = new Date(finishedAt).getTime();
-    const diff = Math.max(0, Math.round((finish - start) / 1000));
-    return `${diff}s`;
-  } catch {
-    return "—";
-  }
-}
+const formatDuration = formatUtcDuration;
+
 
 function formatBytes(bytes?: number | null): string {
   if (bytes === null || bytes === undefined) return "—";

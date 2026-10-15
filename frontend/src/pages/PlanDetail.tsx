@@ -19,6 +19,7 @@ import { useProjects } from "@/hooks/useProjects";
 import { useEnvironments } from "@/hooks/useEnvironments";
 import { useMissionDAG, useCreateRun } from "@/hooks/useMissions";
 import { DAGView } from "@/components/missions/DAGView";
+import { formatUtcDateTime } from "@/lib/date";
 import type { PlanStatus, PlanVersionSummary } from "@/types/plan";
 import styles from "./PlanDetail.module.css";
 
@@ -350,13 +351,13 @@ export default function PlanDetail() {
           </div>
           <div className={styles.auditItem}>
             <span>Created At:</span>
-            <strong>{new Date(activePlan.created_at).toLocaleString()}</strong>
+            <strong>{formatUtcDateTime(activePlan.created_at)}</strong>
           </div>
           {isApproved && activePlan.approved_by && activePlan.approved_at && (
             <div className={styles.auditItem} style={{ color: "#16a34a" }}>
               <span>Approved by:</span>
               <strong>{activePlan.approved_by}</strong>
-              <span>at {new Date(activePlan.approved_at).toLocaleString()}</span>
+              <span>at {formatUtcDateTime(activePlan.approved_at)}</span>
             </div>
           )}
         </div>

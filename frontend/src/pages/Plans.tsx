@@ -12,6 +12,7 @@ import { usePlans } from "@/hooks/usePlans";
 import { useProjects } from "@/hooks/useProjects";
 import type { PlanStatus, PlanSummary } from "@/types/plan";
 import { Badge } from "@/components/ui/Badge";
+import { formatUtcDateOnly } from "@/lib/date";
 import styles from "./Plans.module.css";
 
 function SparklesIcon() {
@@ -245,7 +246,7 @@ export default function Plans() {
                       <td>
                         {plan.status === "approved" && plan.approved_at ? (
                           <span style={{ fontSize: "var(--font-size-xs)", color: "var(--color-foreground-muted)" }}>
-                            Approved on {new Date(plan.approved_at).toLocaleDateString()}
+                            Approved on {formatUtcDateOnly(plan.approved_at)}
                           </span>
                         ) : plan.status === "pending_review" ? (
                           <span style={{ fontSize: "var(--font-size-xs)", color: "#eab308" }}>
@@ -258,7 +259,7 @@ export default function Plans() {
                         )}
                       </td>
                       <td style={{ fontSize: "var(--font-size-xs)", color: "var(--color-foreground-muted)" }}>
-                        {new Date(plan.updated_at || plan.created_at).toLocaleDateString()}
+                        {formatUtcDateOnly(plan.updated_at || plan.created_at)}
                       </td>
                       <td>
                         <div className={styles.actionsCell} style={{ justifyContent: "flex-end" }}>

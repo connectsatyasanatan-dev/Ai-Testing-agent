@@ -121,6 +121,12 @@ async def get_mission_dag(
             )
         )
 
+    from datetime import timezone
+
+    approved_at = plan.approved_at
+    if approved_at and approved_at.tzinfo is None:
+        approved_at = approved_at.replace(tzinfo=timezone.utc)
+
     return MissionDAGPlan(
         mission_id=plan.id,
         name=plan.name,
@@ -129,7 +135,7 @@ async def get_mission_dag(
         requires_approval=plan.requires_approval,
         status=plan.status,
         version=plan.version,
-        approved_at=plan.approved_at,
+        approved_at=approved_at,
         approved_by=plan.approved_by,
     )
 

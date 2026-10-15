@@ -495,7 +495,7 @@ class HttpAssertionEngine:
     def _eval_json_path_exists(
         self, outputs: Mapping[str, Any], assertion: AssertionSchema
     ) -> AssertionResultSchema:
-        path = assertion.path
+        path = assertion.path or (str(assertion.value) if assertion.value is not None else None)
         if not path:
             return AssertionResultSchema(
                 type=assertion.type,

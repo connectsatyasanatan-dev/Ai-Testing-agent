@@ -13,33 +13,15 @@ import { Spinner } from "@/components/ui/Spinner";
 import { useProjects } from "@/hooks/useProjects";
 import { usePlans, useRuns } from "@/hooks/useRuns";
 import type { RunFilterParams } from "@/types/run";
+import { formatUtcDateTime, formatUtcDuration } from "@/lib/date";
 import styles from "./Runs.module.css";
 
 function formatTimestamp(isoString?: string | null): string {
-  if (!isoString) return "—";
-  try {
-    const date = new Date(isoString);
-    return `${date.toLocaleDateString()} ${date.toLocaleTimeString([], {
-      hour: "2-digit",
-      minute: "2-digit",
-      second: "2-digit",
-    })}`;
-  } catch {
-    return isoString;
-  }
+  return formatUtcDateTime(isoString);
 }
 
-function formatDuration(startedAt?: string | null, finishedAt?: string | null): string {
-  if (!startedAt || !finishedAt) return "—";
-  try {
-    const start = new Date(startedAt).getTime();
-    const finish = new Date(finishedAt).getTime();
-    const diff = Math.max(0, Math.round((finish - start) / 1000));
-    return `${diff}s`;
-  } catch {
-    return "—";
-  }
-}
+const formatDuration = formatUtcDuration;
+
 
 function getStatusAccessibleLabel(status: string): string {
   switch (status.toLowerCase()) {
