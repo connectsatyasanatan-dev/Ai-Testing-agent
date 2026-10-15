@@ -172,11 +172,6 @@ export default function PlanDetail() {
       ? `/projects/${currentProjectId}/plans/${planId}/edit`
       : `/plans/${planId}/edit`;
 
-  const getRunsPath = () =>
-    currentProjectId
-      ? `/projects/${currentProjectId}/runs`
-      : "/runs";
-
   const renderShell = (children: React.ReactNode) => (
     <AppShell
       header={

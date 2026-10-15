@@ -23,33 +23,33 @@ interface DecompositionStage {
 const DECOMPOSITION_STAGES: DecompositionStage[] = [
   {
     step: 1,
-    title: "Ingesting Specifications & Target Endpoints",
-    desc: "Parsing requirements markdown, OpenAPI contracts, and live target URLs...",
-    icon: "📄",
+    title: "RAG Semantic Context Indexer",
+    desc: "Chunking OpenAPI schemas & Markdown requirements with BM25 semantic retriever...",
+    icon: "📚",
   },
   {
     step: 2,
-    title: "Autonomous Supervisor Decomposition",
-    desc: "Multi-Agent network analyzing user journeys, endpoints, auth flows & boundaries...",
-    icon: "🧠",
+    title: "LangGraph Multi-Agent State Machine",
+    desc: "Supervisor agent decomposing target journeys into high-value specialized tasks...",
+    icon: "🤖",
   },
   {
     step: 3,
-    title: "Synthesizing Execution DAG",
-    desc: "Computing topological dependencies, prerequisite chains, and parallel lanes...",
-    icon: "🕸️",
-  },
-  {
-    step: 4,
-    title: "Configuring Multi-Adapter Steps & Assertions",
-    desc: "Binding REST API, Playwright UI, and Performance assertion rules...",
+    title: "Specialist Agents Contract Binding",
+    desc: "API Specialist binding JWT headers & JSONPaths; UI Specialist generating Playwright steps...",
     icon: "🛡️",
   },
   {
-    step: 5,
-    title: "Assembling Final Autonomous Mission",
-    desc: "Validating safety guardrails, SSRF allowlists, and compiling DAG plan...",
+    step: 4,
+    title: "Evaluator Kahn DAG & SSRF Guardrail",
+    desc: "Enforcing topological acyclicity, variable export consistency & target allowlists...",
     icon: "⚡",
+  },
+  {
+    step: 5,
+    title: "Compiling Autonomous Test Plan",
+    desc: "Generating immutable draft DAG with live telemetry ready for mission approval...",
+    icon: "🎯",
   },
 ];
 
@@ -69,6 +69,13 @@ export default function MissionPlanner() {
   const [scenariosContent, setScenariosContent] = useState("");
   const [targetUrls, setTargetUrls] = useState<string[]>([""]);
   const maxParallelTasks = 4;
+
+  // AI & Multi-Agent Orchestration Settings
+  const [aiModel, setAiModel] = useState("nvidia/nemotron-4-340b-instruct");
+  const [orchestrationEngine, setOrchestrationEngine] = useState<"langgraph" | "topological_dag">("langgraph");
+  const [useRag, setUseRag] = useState(true);
+  const [testStrategy, setTestStrategy] = useState<"full_regression" | "critical_smoke" | "security_boundary">("full_regression");
+  const [temperature, setTemperature] = useState(0.1);
 
   const [validationError, setValidationError] = useState<string | null>(null);
 
@@ -202,6 +209,12 @@ export default function MissionPlanner() {
         scenarios_content: scenariosContent.trim() || undefined,
         target_urls: validTargetUrls,
         max_parallel_tasks: maxParallelTasks,
+        ai_provider_name: aiModel.includes("nemotron") ? "nemotron" : aiModel.includes("gpt") ? "openai" : "anthropic",
+        ai_model: aiModel,
+        orchestration_engine: orchestrationEngine,
+        use_rag: useRag,
+        test_strategy: testStrategy,
+        temperature: temperature,
       });
 
       // Navigate to Mission DAG review
@@ -231,13 +244,13 @@ export default function MissionPlanner() {
               ← Back to Plans
             </Link>
             <span className={styles.badgePill}>
-              ⚡ Autonomous DAG Engine • Nemotron-3.5
+              ⚡ LangGraph Multi-Agent • RAG-Augmented • {aiModel.includes("nemotron") ? "Nemotron-340B" : "GPT-4o"}
             </span>
           </div>
           <h1 className={styles.title}>Plan Autonomous Multi-Agent Mission</h1>
           <p className={styles.subtitle}>
-            Upload specifications, OpenAPI contracts, and test scenarios. The Supervisor agent will decompose your
-            inputs into an adapter-driven task DAG with prerequisite dependencies.
+            Upload specifications, OpenAPI contracts, and test scenarios. The LangGraph Supervisor and Specialist
+            agents will decompose your inputs into an adapter-driven task DAG with prerequisite dependencies.
           </p>
         </div>
 
@@ -251,11 +264,188 @@ export default function MissionPlanner() {
         )}
 
         <form className={styles.formCard} onSubmit={(e) => { void handleSubmit(e); }} noValidate>
-          {/* Section 1: Target Environment & Application URLs */}
+          {/* Section 1: AI Multi-Agent & RAG Engine Configuration */}
+          <div className={`${styles.section} ${styles.aiSection}`}>
+            <div className={styles.aiSectionHeader}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "0.5rem" }}>
+                <div className={styles.aiActivePill}>
+                  <span className={styles.aiActivePillDot} />
+                  <span>LangGraph Core v1.2 Active</span>
+                </div>
+                <span style={{ fontSize: "0.74rem", color: "#94a3b8", fontFamily: "monospace" }}>
+                  Autonomous Multi-Agent Testing Mesh
+                </span>
+              </div>
+              <h2 className={styles.sectionTitle}>
+                <span className={`${styles.stepNumber} ${styles.aiStepNumber}`}>01</span>
+                <span>AI Multi-Agent & RAG Engine Configuration</span>
+              </h2>
+              <p className={styles.sectionDesc}>
+                Configure LLM reasoning models, LangGraph multi-agent orchestration, and RAG semantic chunking for zero-hallucination test synthesis.
+              </p>
+            </div>
+
+            <div className={styles.aiGrid}>
+              {/* Card 1: AI Reasoning Model */}
+              <div className={styles.aiFeatureCard}>
+                <div className={styles.aiCardHeader}>
+                  <span className={styles.aiCardTitle}>🤖 AI Reasoning Model</span>
+                  <span className={`${styles.aiCardBadge} ${styles.aiCardBadgeActive}`}>NVIDIA NIM</span>
+                </div>
+                <select
+                  id="ai-model-select"
+                  className={styles.select}
+                  value={aiModel}
+                  onChange={(e) => setAiModel(e.target.value)}
+                >
+                  <option value="nvidia/nemotron-4-340b-instruct">
+                    Nemotron 340B (NVIDIA NIM)
+                  </option>
+                  <option value="gpt-4o">
+                    GPT-4o (OpenAI Multimodal)
+                  </option>
+                  <option value="claude-3-5-sonnet-20241022">
+                    Claude 3.5 Sonnet (Anthropic)
+                  </option>
+                  <option value="llama-3.3-70b-instruct">
+                    Llama 3.3 70B (Local vLLM)
+                  </option>
+                </select>
+                <span className={styles.aiCardHelper}>
+                  ⚡ 128K Context Window • Deterministic JSON Schema Enforcement
+                </span>
+              </div>
+
+              {/* Card 2: Multi-Agent Orchestration Framework */}
+              <div className={styles.aiFeatureCard}>
+                <div className={styles.aiCardHeader}>
+                  <span className={styles.aiCardTitle}>🕸️ Orchestration Framework</span>
+                  <span className={`${styles.aiCardBadge} ${styles.aiCardBadgeActive}`}>Multi-Agent</span>
+                </div>
+                <select
+                  id="orchestration-engine-select"
+                  className={styles.select}
+                  value={orchestrationEngine}
+                  onChange={(e) => setOrchestrationEngine(e.target.value as "langgraph" | "topological_dag")}
+                >
+                  <option value="langgraph">
+                    LangGraph State Machine (Recommended)
+                  </option>
+                  <option value="topological_dag">
+                    Topological Kahn DAG Engine
+                  </option>
+                </select>
+                <span className={styles.aiCardHelper}>
+                  🔄 Supervisor ➔ RAG ➔ API Specialist ➔ UI Specialist ➔ Guardrail
+                </span>
+              </div>
+
+              {/* Card 3: Test Planning Strategy */}
+              <div className={styles.aiFeatureCard}>
+                <div className={styles.aiCardHeader}>
+                  <span className={styles.aiCardTitle}>🎯 Planning Strategy</span>
+                  <span className={styles.aiCardBadge}>Autonomous</span>
+                </div>
+                <select
+                  id="test-strategy-select"
+                  className={styles.select}
+                  value={testStrategy}
+                  onChange={(e) => setTestStrategy(e.target.value as "full_regression" | "critical_smoke" | "security_boundary")}
+                >
+                  <option value="full_regression">
+                    Full E2E Regression (API + UI)
+                  </option>
+                  <option value="critical_smoke">
+                    Critical P0 Smoke Path
+                  </option>
+                  <option value="security_boundary">
+                    Security Boundary & Negative
+                  </option>
+                </select>
+                <span className={styles.aiCardHelper}>
+                  🛡️ Multi-adapter coverage: REST HTTP + Playwright Chromium
+                </span>
+              </div>
+
+              {/* Card 4: Reasoning Strictness & Determinism */}
+              <div className={`${styles.aiFeatureCard} ${styles.sliderCard}`}>
+                <div className={styles.aiCardHeader}>
+                  <span className={styles.aiCardTitle}>⚡ Reasoning Strictness</span>
+                  <span className={`${styles.aiCardBadge} ${styles.aiCardBadgeActive}`}>
+                    {temperature.toFixed(2)} • {temperature <= 0.15 ? "Strict" : "Exploratory"}
+                  </span>
+                </div>
+                <div className={styles.sliderTrackWrapper}>
+                  <input
+                    id="temp-slider"
+                    type="range"
+                    min="0.0"
+                    max="0.7"
+                    step="0.05"
+                    value={temperature}
+                    onChange={(e) => setTemperature(parseFloat(e.target.value))}
+                    className={styles.rangeInputCustom}
+                    aria-label="Model Temperature"
+                  />
+                  <div className={styles.sliderPresetRow}>
+                    <button
+                      type="button"
+                      className={`${styles.sliderPresetBtn} ${temperature === 0.0 ? styles.sliderPresetBtnActive : ""}`}
+                      onClick={() => setTemperature(0.0)}
+                    >
+                      0.00 Strict
+                    </button>
+                    <button
+                      type="button"
+                      className={`${styles.sliderPresetBtn} ${temperature === 0.1 ? styles.sliderPresetBtnActive : ""}`}
+                      onClick={() => setTemperature(0.1)}
+                    >
+                      0.10 Balanced
+                    </button>
+                    <button
+                      type="button"
+                      className={`${styles.sliderPresetBtn} ${temperature === 0.35 ? styles.sliderPresetBtnActive : ""}`}
+                      onClick={() => setTemperature(0.35)}
+                    >
+                      0.35 Exploratory
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Row 3: Full-Width RAG Context Banner */}
+              <div
+                className={styles.ragBannerCard}
+                onClick={() => setUseRag(!useRag)}
+                role="button"
+                tabIndex={0}
+                onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") setUseRag(!useRag); }}
+                aria-pressed={useRag}
+              >
+                <div className={styles.ragLeft}>
+                  <div className={styles.ragIconBox}>📚</div>
+                  <div className={styles.ragContent}>
+                    <div className={styles.ragTitleRow}>
+                      <span className={styles.ragTitle}>RAG-Augmented Endpoint & Requirement Retrieval</span>
+                      <span className={styles.ragActivePill}>{useRag ? "ACTIVE • ZERO-HALLUCINATION" : "DISABLED"}</span>
+                    </div>
+                    <p className={styles.ragDesc}>
+                      Automatically chunks OpenAPI 3.0+ endpoints and Markdown requirements into BM25 vector units. Delivers exact request bodies, parameter schemas, and JWT tokens directly into agent prompts without context overflow.
+                    </p>
+                  </div>
+                </div>
+                <div className={`${styles.switchTrack} ${useRag ? styles.switchTrackChecked : ""}`}>
+                  <div className={`${styles.switchThumb} ${useRag ? styles.switchThumbChecked : ""}`} />
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Section 2: Target Environment & Application URLs */}
           <div className={styles.section}>
             <div className={styles.sectionHeader}>
               <h2 className={styles.sectionTitle}>
-                <span className={styles.stepNumber}>01</span>
+                <span className={styles.stepNumber}>02</span>
                 <span>Target Environment & Application URLs</span>
               </h2>
               <p className={styles.sectionDesc}>
@@ -354,11 +544,11 @@ export default function MissionPlanner() {
             </div>
           </div>
 
-          {/* Section 2: Requirements Specification (Markdown) */}
+          {/* Section 3: Requirements Specification (Markdown) */}
           <div className={styles.section}>
             <div className={styles.sectionHeader}>
               <h2 className={styles.sectionTitle}>
-                <span className={styles.stepNumber}>02</span>
+                <span className={styles.stepNumber}>03</span>
                 <span>Requirements Specification (requirements.md)</span>
               </h2>
               <p className={styles.sectionDesc}>
@@ -405,11 +595,11 @@ export default function MissionPlanner() {
             </div>
           </div>
 
-          {/* Section 3: OpenAPI Specification (Optional) */}
+          {/* Section 4: OpenAPI Specification (Optional) */}
           <div className={styles.section}>
             <div className={styles.sectionHeader}>
               <h2 className={styles.sectionTitle}>
-                <span className={styles.stepNumber}>03</span>
+                <span className={styles.stepNumber}>04</span>
                 <span>API Specification (openapi.json / yaml — Optional)</span>
               </h2>
               <p className={styles.sectionDesc}>
@@ -455,11 +645,11 @@ export default function MissionPlanner() {
             </div>
           </div>
 
-          {/* Section 4: Scenarios (scenarios.json — Optional) */}
+          {/* Section 5: Scenarios (scenarios.json — Optional) */}
           <div className={styles.section}>
             <div className={styles.sectionHeader}>
               <h2 className={styles.sectionTitle}>
-                <span className={styles.stepNumber}>04</span>
+                <span className={styles.stepNumber}>05</span>
                 <span>Test Scenarios (scenarios.json — Optional)</span>
               </h2>
               <p className={styles.sectionDesc}>
@@ -574,7 +764,6 @@ export default function MissionPlanner() {
                 {DECOMPOSITION_STAGES.map((stage, idx) => {
                   const isDone = idx < activeStageIndex;
                   const isCurrent = idx === activeStageIndex;
-                  const isUpcoming = idx > activeStageIndex;
 
                   return (
                     <div

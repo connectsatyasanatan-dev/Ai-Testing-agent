@@ -15,16 +15,19 @@ interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
   asChild?: React.ReactElement<{ className?: string; children?: React.ReactNode }>;
 }
 
-export function Button({
-  variant = "primary",
-  size = "md",
-  loading = false,
-  disabled,
-  asChild,
-  className = "",
-  children,
-  ...rest
-}: ButtonProps) {
+export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(function Button(
+  {
+    variant = "primary",
+    size = "md",
+    loading = false,
+    disabled,
+    asChild,
+    className = "",
+    children,
+    ...rest
+  }: ButtonProps,
+  ref
+) {
   const cls = [styles.btn, styles[variant], styles[size], className]
     .filter(Boolean)
     .join(" ");
@@ -45,6 +48,7 @@ export function Button({
 
   return (
     <button
+      ref={ref}
       className={cls}
       disabled={disabled || loading}
       aria-disabled={disabled || loading}
@@ -53,4 +57,4 @@ export function Button({
       {content}
     </button>
   );
-}
+});

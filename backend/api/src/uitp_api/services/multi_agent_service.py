@@ -385,7 +385,21 @@ def _build_supervisor_user_prompt(
     if openapi_analysis is not None:
         prompt += f"\n<analyzed_openapi>\n{openapi_analysis.summary_markdown}\n</analyzed_openapi>\n"
     if request.openapi_spec:
-        prompt += f"\n<untrusted_openapi>\n{request.openapi_spec.strip()[:2000]}\n</untrusted_openapi>\n"
+        try:
+            import json
+            spec_data = json.loads(request.openapi_spec)
+            if isinstance(spec_data, dict) and "paths" in spec_data:
+                paths_summary = []
+                for p_path, p_methods in spec_data["paths"].items():
+                    if isinstance(p_methods, dict):
+                        for m_method in p_methods.keys():
+                            if m_method.lower() in ("get", "post", "put", "delete", "patch"):
+                                paths_summary.append(f"{m_method.upper()} {p_path}")
+                if paths_summary:
+                    prompt += "\n<target_api_endpoints>\n" + "\n".join(paths_summary[:40]) + "\n</target_api_endpoints>\n"
+        except Exception:
+            pass
+        prompt += f"\n<untrusted_openapi>\n{request.openapi_spec.strip()[:8000]}\n</untrusted_openapi>\n"
     if request.scenarios_content:
         prompt += f"\n<untrusted_scenarios>\n{request.scenarios_content.strip()}\n</untrusted_scenarios>\n"
     if request.target_urls:
@@ -490,26 +504,53 @@ def _normalize_task_dict(t_data: dict[str, Any], default_idx: int = 0) -> dict[s
 
                 # Specific adapter requirements validation and fallbacks
                 if step_adapter == "http_api":
-                    if not raw_inputs.get("url") and not raw_inputs.get("path"):
-                        task_id_lower = str(t_data.get("task_id", "")).lower()
-                        if "health" in task_id_lower or "health" in action:
+                    p = str(raw_inputs.get("path", "")).strip()
+                    # Fix obsolete /api/v1/ prefix to actual /api/ routes
+                    if p.startswith("/api/v1/"):
+                        p = p.replace("/api/v1/", "/api/")
+                        raw_inputs["path"] = p
+
+                    task_id_lower = str(t_data.get("task_id", "")).lower()
+                    has_login_fields = any(
+                        k in str(raw_inputs).lower()
+                        for k in ("email", "password", "username", "token", "login")
+                    )
+
+                    # Fix POST to /health with login credentials to /api/auth/login
+                    if action == "post" and (p == "/health" or not p) and has_login_fields:
+                        raw_inputs["path"] = "/api/auth/login"
+                    elif not raw_inputs.get("url") and not raw_inputs.get("path"):
+                        if action == "post" and (has_login_fields or "auth" in task_id_lower or "login" in task_id_lower):
+                            raw_inputs["path"] = "/api/auth/login"
+                        elif "employee" in task_id_lower or "user" in task_id_lower:
+                            raw_inputs["path"] = "/api/employees"
+                        elif "task" in task_id_lower:
+                            raw_inputs["path"] = "/api/tasks"
+                        elif "dashboard" in task_id_lower or "stat" in task_id_lower:
+                            raw_inputs["path"] = "/api/dashboard/stats"
+                        elif action == "get" and ("health" in task_id_lower or "health" in action):
                             raw_inputs["path"] = "/health"
-                        elif "auth" in task_id_lower or "login" in task_id_lower:
-                            raw_inputs["path"] = "/api/v1/auth/token" if action == "post" else "/health"
-                        elif "employee" in task_id_lower:
-                            raw_inputs["path"] = "/api/v1/employees"
+                        elif action == "get":
+                            raw_inputs["path"] = "/health"
                         else:
-                            raw_inputs["path"] = "/health"
+                            raw_inputs["path"] = "/api/auth/login"
+
                 elif step_adapter == "web":
                     if action == "navigate":
                         if not raw_inputs.get("url") and not raw_inputs.get("target_url"):
                             raw_inputs["url"] = "http://localhost:5173"
                     elif action in ("fill", "type"):
+                        val = str(raw_inputs.get("value", ""))
                         if not raw_inputs.get("selector"):
-                            raw_inputs["selector"] = "input"
+                            if "@" in val or "mail" in val.lower():
+                                raw_inputs["selector"] = "input#email, input[type='email'], input[name='email']"
+                            elif "admin" in val.lower() or "pass" in val.lower() or "123" in val:
+                                raw_inputs["selector"] = "input#password, input[type='password'], input[name='password']"
+                            else:
+                                raw_inputs["selector"] = "input"
                     elif action == "click":
                         if not raw_inputs.get("selector"):
-                            raw_inputs["selector"] = "button"
+                            raw_inputs["selector"] = "button[type='submit'], .login-submit-btn, button"
 
                 s["inputs"] = raw_inputs
 
@@ -690,18 +731,54 @@ async def plan_mission_dag(
         from uitp_api.services.openapi_service import analyze_openapi_specification
         openapi_analysis = analyze_openapi_specification(request.openapi_spec)
 
-    # 4. Model completion call with bounded schema repair
+    # 4. Model completion call with LangGraph or Bounded Schema Repair
     if provider is None:
         provider = get_ai_provider()
 
-    system_prompt = _build_supervisor_system_prompt()
-    user_prompt = _build_supervisor_user_prompt(request, openapi_analysis=openapi_analysis)
+    agent_traces: list[dict[str, Any]] = []
 
-    raw_output, parsed_tasks, usage = await _complete_and_validate_with_bounded_repair(
-        provider=provider,
-        system_prompt=system_prompt,
-        initial_user_prompt=user_prompt,
-    )
+    if request.orchestration_engine == "langgraph":
+        from uitp_api.services.langgraph_service import execute_langgraph_mission_planning
+        raw_output, parsed_tasks, usage, agent_traces = await execute_langgraph_mission_planning(
+            request=request,
+            provider=provider,
+        )
+    else:
+        # Augment with RAG if enabled
+        rag_context_str = ""
+        if request.use_rag:
+            from uitp_api.services.rag_service import RAGContextIndexer
+            indexer = RAGContextIndexer()
+            if request.openapi_spec:
+                indexer.index_openapi(request.openapi_spec)
+            indexer.index_requirements(request.requirements_content)
+            if request.scenarios_content:
+                indexer.index_scenarios(request.scenarios_content)
+            queries = ["auth login", "crud", "tasks", "employees", "frontend ui"]
+            rag_packet = indexer.build_augmented_context(queries)
+            rag_context_str = f"\n<rag_retrieved_context>\n{rag_packet.get('endpoints_context', '')}\n{rag_packet.get('requirements_context', '')}\n</rag_retrieved_context>\n"
+            agent_traces.append({
+                "agent": "rag_retriever",
+                "action": "bm25_index",
+                "message": f"RAG indexed {rag_packet['total_chunks_indexed']} chunks and retrieved matching contexts.",
+            })
+
+        system_prompt = _build_supervisor_system_prompt()
+        user_prompt = _build_supervisor_user_prompt(request, openapi_analysis=openapi_analysis)
+        if rag_context_str:
+            user_prompt = f"{rag_context_str}\n{user_prompt}"
+
+        raw_output, parsed_tasks, usage = await _complete_and_validate_with_bounded_repair(
+            provider=provider,
+            system_prompt=system_prompt,
+            initial_user_prompt=user_prompt,
+        )
+        agent_traces.append({
+            "agent": "supervisor_agent",
+            "action": "topological_decomposition",
+            "message": f"Supervisor decomposed mission into {len(parsed_tasks)} tasks via bounded repair.",
+        })
+
     mission_id = str(uuid.uuid4())
 
     # 5. Extract requirement priorities and reconcile task classifications deterministically
@@ -782,7 +859,14 @@ async def plan_mission_dag(
         description=test_plan.description,
         tasks=parsed_tasks,
         max_parallel_tasks=request.max_parallel_tasks,
-        metadata={"total_tokens": usage.total_tokens if usage else 0},
+        metadata={
+            "total_tokens": usage.total_tokens if usage else 0,
+            "orchestration_engine": request.orchestration_engine,
+            "use_rag": request.use_rag,
+            "test_strategy": request.test_strategy,
+            "ai_provider": request.ai_provider_name or getattr(provider, "model", "nemotron"),
+            "agent_traces": agent_traces,
+        },
         requires_approval=True,
     )
 

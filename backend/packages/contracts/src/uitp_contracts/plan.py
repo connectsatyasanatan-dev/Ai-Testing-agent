@@ -454,6 +454,12 @@ class MultiAgentMissionRequest(BaseModel):
     target_urls: list[str] = Field(default_factory=list, description="Target application URLs to test")
     environment_id: str = Field(..., description="Target registered project environment ID")
     max_parallel_tasks: int = Field(default=4, ge=1, le=10)
+    ai_provider_name: str | None = Field(default=None, description="AI provider: nemotron, openai, anthropic, mock")
+    ai_model: str | None = Field(default=None, description="AI model name")
+    orchestration_engine: str = Field(default="langgraph", description="Orchestration engine: 'langgraph' or 'topological_dag'")
+    use_rag: bool = Field(default=True, description="Enable RAG semantic chunking & context retrieval")
+    test_strategy: str = Field(default="full_regression", description="'full_regression' | 'critical_smoke' | 'security_boundary'")
+    temperature: float = Field(default=0.1, ge=0.0, le=1.0, description="Model generation temperature")
 
 
 class TaskExecutionOutcome(BaseModel):

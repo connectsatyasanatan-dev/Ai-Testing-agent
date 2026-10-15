@@ -60,6 +60,12 @@ export interface MultiAgentMissionRequest {
   target_urls?: string[];
   environment_id: string;
   max_parallel_tasks?: number;
+  ai_provider_name?: string;
+  ai_model?: string;
+  orchestration_engine?: "langgraph" | "topological_dag";
+  use_rag?: boolean;
+  test_strategy?: "full_regression" | "critical_smoke" | "security_boundary";
+  temperature?: number;
 }
 
 export interface RequirementCoverageStatus {
