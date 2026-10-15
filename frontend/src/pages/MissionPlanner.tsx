@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { AppShell } from "@/components/layout/AppShell";
 import { Header } from "@/components/layout/Header";
@@ -713,113 +714,115 @@ export default function MissionPlanner() {
         </form>
 
         {/* ── High-End AI Multi-Agent Decomposition Overlay & Loader ──────── */}
-        {planMissionMutation.isPending && (
-          <div
-            className={styles.loaderOverlay}
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="loader-modal-title"
-          >
-            <div className={styles.loaderCard}>
-              {/* Animated AI Agent Core Orb */}
-              <div className={styles.aiOrbWrapper}>
-                <div className={styles.aiOrbRingOuter} />
-                <div className={styles.aiOrbRingInner} />
-                <div className={styles.aiOrbCore}>
-                  <span className={styles.aiOrbIcon}>⚡</span>
+        {planMissionMutation.isPending &&
+          createPortal(
+            <div
+              className={styles.loaderOverlay}
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="loader-modal-title"
+            >
+              <div className={styles.loaderCard}>
+                {/* Animated AI Agent Core Orb */}
+                <div className={styles.aiOrbWrapper}>
+                  <div className={styles.aiOrbRingOuter} />
+                  <div className={styles.aiOrbRingInner} />
+                  <div className={styles.aiOrbCore}>
+                    <span className={styles.aiOrbIcon}>⚡</span>
+                  </div>
                 </div>
-              </div>
 
-              {/* Title & Status Header */}
-              <div className={styles.loaderHeader}>
-                <div className={styles.aiBadgePill}>
-                  <span className={styles.pulseDot} />
-                  <span>NVIDIA Nemotron 120B • Autonomous Multi-Agent Core</span>
+                {/* Title & Status Header */}
+                <div className={styles.loaderHeader}>
+                  <div className={styles.aiBadgePill}>
+                    <span className={styles.pulseDot} />
+                    <span>NVIDIA Nemotron 120B • Autonomous Multi-Agent Core</span>
+                  </div>
+                  <h3 id="loader-modal-title" className={styles.loaderTitle}>
+                    Synthesizing Mission DAG
+                  </h3>
+                  <p className={styles.loaderSubtitle}>
+                    Supervisor and Specialist agents are analyzing your specifications and target environments to decompose an executable test graph.
+                  </p>
                 </div>
-                <h3 id="loader-modal-title" className={styles.loaderTitle}>
-                  Synthesizing Mission DAG
-                </h3>
-                <p className={styles.loaderSubtitle}>
-                  Supervisor and Specialist agents are analyzing your specifications and target environments to decompose an executable test graph.
-                </p>
-              </div>
 
-              {/* Live Target Scope Tags */}
-              {targetUrls.filter((u) => u.trim().length > 0).length > 0 && (
-                <div className={styles.loaderTargetList}>
-                  <span className={styles.targetListLabel}>Target Scope:</span>
-                  {targetUrls
-                    .filter((u) => u.trim().length > 0)
-                    .map((url, i) => (
-                      <span key={i} className={styles.targetBadge}>
-                        {url.includes("8000") ? "⚡ FastAPI: " : url.includes("5173") ? "⚛️ React: " : "🌐 "}
-                        {url}
-                      </span>
-                    ))}
-                </div>
-              )}
+                {/* Live Target Scope Tags */}
+                {targetUrls.filter((u) => u.trim().length > 0).length > 0 && (
+                  <div className={styles.loaderTargetList}>
+                    <span className={styles.targetListLabel}>Target Scope:</span>
+                    {targetUrls
+                      .filter((u) => u.trim().length > 0)
+                      .map((url, i) => (
+                        <span key={i} className={styles.targetBadge}>
+                          {url.includes("8000") ? "⚡ FastAPI: " : url.includes("5173") ? "⚛️ React: " : "🌐 "}
+                          {url}
+                        </span>
+                      ))}
+                  </div>
+                )}
 
-              {/* Step Progression Ticker */}
-              <div className={styles.stepsContainer}>
-                {DECOMPOSITION_STAGES.map((stage, idx) => {
-                  const isDone = idx < activeStageIndex;
-                  const isCurrent = idx === activeStageIndex;
+                {/* Step Progression Ticker */}
+                <div className={styles.stepsContainer}>
+                  {DECOMPOSITION_STAGES.map((stage, idx) => {
+                    const isDone = idx < activeStageIndex;
+                    const isCurrent = idx === activeStageIndex;
 
-                  return (
-                    <div
-                      key={stage.step}
-                      className={`${styles.stepRow} ${
-                        isCurrent
-                          ? styles.stepRowCurrent
-                          : isDone
-                          ? styles.stepRowDone
-                          : styles.stepRowUpcoming
-                      }`}
-                    >
-                      <div className={styles.stepIndicator}>
-                        {isDone ? (
-                          <span className={styles.stepCheck}>✓</span>
-                        ) : isCurrent ? (
-                          <span className={styles.stepSpinnerMini} />
-                        ) : (
-                          <span className={styles.stepDot} />
-                        )}
-                      </div>
-                      <div className={styles.stepTextWrapper}>
-                        <div className={styles.stepTitle}>
-                          <span>{stage.title}</span>
-                          {isCurrent && <span className={styles.stepActiveBadge}>In Progress</span>}
+                    return (
+                      <div
+                        key={stage.step}
+                        className={`${styles.stepRow} ${
+                          isCurrent
+                            ? styles.stepRowCurrent
+                            : isDone
+                            ? styles.stepRowDone
+                            : styles.stepRowUpcoming
+                        }`}
+                      >
+                        <div className={styles.stepIndicator}>
+                          {isDone ? (
+                            <span className={styles.stepCheck}>✓</span>
+                          ) : isCurrent ? (
+                            <span className={styles.stepSpinnerMini} />
+                          ) : (
+                            <span className={styles.stepDot} />
+                          )}
                         </div>
-                        <div className={styles.stepDesc}>{stage.desc}</div>
+                        <div className={styles.stepTextWrapper}>
+                          <div className={styles.stepTitle}>
+                            <span>{stage.title}</span>
+                            {isCurrent && <span className={styles.stepActiveBadge}>In Progress</span>}
+                          </div>
+                          <div className={styles.stepDesc}>{stage.desc}</div>
+                        </div>
                       </div>
-                    </div>
-                  );
-                })}
-              </div>
+                    );
+                  })}
+                </div>
 
-              {/* Shimmer Progress Bar */}
-              <div className={styles.progressBarWrapper}>
-                <div
-                  className={styles.progressBarFill}
-                  style={{
-                    width: `${Math.min(95, ((activeStageIndex + 1) / DECOMPOSITION_STAGES.length) * 100)}%`,
-                  }}
-                />
-              </div>
+                {/* Shimmer Progress Bar */}
+                <div className={styles.progressBarWrapper}>
+                  <div
+                    className={styles.progressBarFill}
+                    style={{
+                      width: `${Math.min(95, ((activeStageIndex + 1) / DECOMPOSITION_STAGES.length) * 100)}%`,
+                    }}
+                  />
+                </div>
 
-              {/* Footer Live Telemetry */}
-              <div className={styles.loaderFooter}>
-                <span className={styles.elapsedTime}>
-                  ⏱️ Elapsed: {String(Math.floor(elapsedSeconds / 60)).padStart(2, "0")}:
-                  {String(elapsedSeconds % 60).padStart(2, "0")}s
-                </span>
-                <span className={styles.loaderTip}>
-                  Please keep this tab open • DAG generation in progress
-                </span>
+                {/* Footer Live Telemetry */}
+                <div className={styles.loaderFooter}>
+                  <span className={styles.elapsedTime}>
+                    ⏱️ Elapsed: {String(Math.floor(elapsedSeconds / 60)).padStart(2, "0")}:
+                    {String(elapsedSeconds % 60).padStart(2, "0")}s
+                  </span>
+                  <span className={styles.loaderTip}>
+                    Please keep this tab open • DAG generation in progress
+                  </span>
+                </div>
               </div>
-            </div>
-          </div>
-        )}
+            </div>,
+            document.body
+          )}
       </div>
     </AppShell>
   );

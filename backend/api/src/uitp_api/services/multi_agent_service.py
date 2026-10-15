@@ -151,15 +151,19 @@ SAFETY CONSTRAINTS:
    - Note: Do NOT output generic 'json_path'; use 'json_path_exists' (with operator 'exists') or 'json_path_equals' (with operator 'eq').
 10. MANDATORY STEP INPUTS:
    - Every step MUST specify 'inputs' (never 'parameters').
-   - For http_api: 'inputs' MUST contain 'path' (e.g. '/health', '/api/v1/employees') or full 'url'.
+   - For http_api: 'inputs' MUST contain 'path' (e.g. '/health', '/api/employees') or full 'url'.
+   - For http_api 'post', 'put', 'patch': 'inputs' MUST contain 'json' object with concrete payload data (e.g. "json": {"email": "admin@gmail.com", "password": "Admin@123"}). NEVER send null or empty body for POST, PUT, or PATCH.
    - For web 'navigate': 'inputs' MUST contain 'url' (e.g. 'http://localhost:5173').
    - For web 'fill': 'inputs' MUST contain 'selector' and 'value'.
    - For web 'click': 'inputs' MUST contain 'selector'.
-11. EFFICIENCY & COMPACTNESS:
+11. MANDATORY ASSERTION RULES:
+   - Every 'json_path_exists', 'json_path_equals', and 'json_path_matches' MUST have an explicit, non-null 'path' expression (e.g. '$.access_token', '$.token_type', '$.id', '$.status'). NEVER output null for path.
+   - Use '$.token_type' to assert "bearer", '$.user.is_active' for active flag, and '$.user.role' for role.
+12. EFFICIENCY & COMPACTNESS:
    - Generate between 2 to 4 high-value tasks total (e.g., 1 auth/health API task, 1 CRUD API journey task, 1 UI test task).
    - Keep each task focused with 1 to 3 essential steps.
    - Keep names and descriptions concise to fit completion limits.
-12. REASONING CONSTRAINT:
+13. REASONING CONSTRAINT:
    - Do NOT generate lengthy chain-of-thought analysis. Keep reasoning under 100 words and produce the valid JSON object directly.
 
 OUTPUT FORMAT:
@@ -535,6 +539,50 @@ def _normalize_task_dict(t_data: dict[str, Any], default_idx: int = 0) -> dict[s
                         else:
                             raw_inputs["path"] = "/api/auth/login"
 
+                    # Ensure essential JSON payload is present for stateful POST/PATCH actions
+                    cur_path = str(raw_inputs.get("path", "")).lower()
+                    if action == "post":
+                        if "login" in cur_path or "auth" in cur_path:
+                            if not raw_inputs.get("json"):
+                                raw_inputs["json"] = {"email": "admin@gmail.com", "password": "Admin@123"}
+                            t_data.setdefault("exports", {})["auth_token"] = {
+                                "json_path": "$.access_token",
+                                "is_secret": True,
+                            }
+                        elif "employee" in cur_path and not raw_inputs.get("json"):
+                            import time
+                            raw_inputs["json"] = {
+                                "name": "API Test Employee",
+                                "email": f"test-emp-{int(time.time())}@example.com",
+                                "password": "TestPassword123!",
+                                "phone": "5551234567",
+                                "department": "Engineering",
+                                "designation": "QA Engineer",
+                            }
+                            t_data.setdefault("exports", {})["created_employee_id"] = {
+                                "json_path": "$.id",
+                                "is_secret": False,
+                            }
+                        elif "task" in cur_path and not raw_inputs.get("json"):
+                            raw_inputs["json"] = {
+                                "title": "API verification task",
+                                "description": "Created during end-to-end API verification",
+                                "assigned_to_user_id": 1,
+                                "priority": "High",
+                                "status": "Pending",
+                                "start_date": "2026-10-15",
+                                "due_date": "2026-10-20",
+                            }
+                            t_data.setdefault("exports", {})["created_task_id"] = {
+                                "json_path": "$.id",
+                                "is_secret": False,
+                            }
+                    elif action == "patch":
+                        if "task" in cur_path and not raw_inputs.get("json"):
+                            raw_inputs["json"] = {"status": "In Progress"}
+                        elif "employee" in cur_path and not raw_inputs.get("json"):
+                            raw_inputs["json"] = {"is_active": True}
+
                 elif step_adapter == "web":
                     if action == "navigate":
                         if not raw_inputs.get("url") and not raw_inputs.get("target_url"):
@@ -556,29 +604,60 @@ def _normalize_task_dict(t_data: dict[str, Any], default_idx: int = 0) -> dict[s
 
                 assertions = s.get("assertions")
                 if isinstance(assertions, list):
+                    clean_assertions = []
                     for a in assertions:
-                        if isinstance(a, dict):
-                            atype = str(a.get("type", "")).lower()
-                            if atype in ("json_path", "jsonpath"):
-                                op = str(a.get("operator", "")).lower()
-                                if op in ("eq", "equals", "=="):
-                                    a["type"] = "json_path_equals"
-                                elif op in ("matches", "regex"):
-                                    a["type"] = "json_path_matches"
+                        if not isinstance(a, dict):
+                            continue
+                        atype = str(a.get("type", "")).lower()
+                        if atype in ("json_path", "jsonpath"):
+                            op = str(a.get("operator", "")).lower()
+                            if op in ("eq", "equals", "=="):
+                                a["type"] = "json_path_equals"
+                            elif op in ("matches", "regex"):
+                                a["type"] = "json_path_matches"
+                            else:
+                                a["type"] = "json_path_exists"
+                            atype = a["type"]
+                        elif atype in ("status", "statuscode"):
+                            a["type"] = "status_code"
+                            atype = "status_code"
+                        elif atype in ("header", "headers"):
+                            op = str(a.get("operator", "")).lower()
+                            a["type"] = "header_equals" if op in ("eq", "equals") else "header_exists"
+                        elif atype in ("url",):
+                            op = str(a.get("operator", "")).lower()
+                            a["type"] = "url_contains" if op in ("contains",) else "url_equals"
+                        elif atype in ("text",):
+                            a["type"] = "text_visible"
+                        elif atype in ("element",):
+                            a["type"] = "element_visible"
+
+                        # Guard and fix json_path assertions
+                        if atype in ("json_path_exists", "json_path_equals", "json_path_matches"):
+                            cur_path = a.get("path")
+                            step_path_str = str(raw_inputs.get("path", "")).lower()
+                            if not cur_path:
+                                if "login" in step_path_str or "auth" in step_path_str:
+                                    a["path"] = "$.access_token"
+                                elif "employee" in step_path_str:
+                                    a["path"] = "$.id"
+                                elif "task" in step_path_str:
+                                    a["path"] = "$.id"
                                 else:
-                                    a["type"] = "json_path_exists"
-                            elif atype in ("status", "statuscode"):
-                                a["type"] = "status_code"
-                            elif atype in ("header", "headers"):
-                                op = str(a.get("operator", "")).lower()
-                                a["type"] = "header_equals" if op in ("eq", "equals") else "header_exists"
-                            elif atype in ("url",):
-                                op = str(a.get("operator", "")).lower()
-                                a["type"] = "url_contains" if op in ("contains",) else "url_equals"
-                            elif atype in ("text",):
-                                a["type"] = "text_visible"
-                            elif atype in ("element",):
-                                a["type"] = "element_visible"
+                                    continue  # Skip unresolvable null path
+                            elif cur_path == "$.status":
+                                val_str = str(a.get("value", "")).lower()
+                                if val_str == "bearer":
+                                    a["path"] = "$.token_type"
+                                elif val_str in ("true", "false") or isinstance(a.get("value"), bool):
+                                    a["path"] = "$.is_active"
+                                elif val_str in ("employee", "admin"):
+                                    a["path"] = "$.role"
+                                elif val_str in ("high", "medium", "low"):
+                                    a["path"] = "$.priority"
+
+                        clean_assertions.append(a)
+                    s["assertions"] = clean_assertions
     return t_data
 
 
