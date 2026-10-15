@@ -198,6 +198,23 @@
   border-color: var(--color-primary);
 }
 
+.select {
+  color-scheme: dark;
+  cursor: pointer;
+}
+
+.select option,
+.select optgroup {
+  background-color: #0f172a;
+  color: #f8fafc;
+  padding: 8px 12px;
+}
+
+.select option:checked {
+  background-color: #2563eb;
+  color: #ffffff;
+}
+
 .textarea {
   resize: vertical;
   min-height: 80px;

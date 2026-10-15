@@ -24,7 +24,7 @@ export default function MissionDetail() {
   const navigate = useNavigate();
 
   const { data: projectList } = useProjects();
-  const { data: planRecord, isLoading: isLoadingPlan } = usePlan(missionId);
+  const { data: planRecord, isLoading: isLoadingPlan, refetch: refetchPlan } = usePlan(missionId);
   const currentProjectId = urlProjectId || planRecord?.project_id || projectList?.items[0]?.id || "";
 
   const { user } = useAuth();
@@ -37,6 +37,7 @@ export default function MissionDetail() {
   const createRunMutation = useCreateRun(missionId ?? "");
 
   const [approvalError, setApprovalError] = useState<string | null>(null);
+  const [optimisticApproved, setOptimisticApproved] = useState(false);
   const [showRunModal, setShowRunModal] = useState(false);
   const [selectedEnvId, setSelectedEnvId] = useState("");
   const [selectedSuite, setSelectedSuite] = useState<SuiteType>("all");
@@ -48,15 +49,22 @@ export default function MissionDetail() {
     }
   }, [envList, selectedEnvId]);
 
-  const isApproved = planRecord?.status === "approved";
-  const isDraft = planRecord?.status === "draft" || !isApproved;
+  const isApproved = Boolean(
+    optimisticApproved ||
+    planRecord?.status === "approved" ||
+    missionPlan?.status === "approved" ||
+    (missionPlan?.approved_at && missionPlan?.status !== "draft")
+  );
+  const isDraft = !isApproved;
 
   const handleApprove = async () => {
     setApprovalError(null);
+    setOptimisticApproved(true);
     try {
       await approveMutation.mutateAsync("Approved via Web Console");
-      await refetchDAG();
+      await Promise.all([refetchDAG(), refetchPlan()]);
     } catch (err) {
+      setOptimisticApproved(false);
       setApprovalError(
         err instanceof Error ? err.message : "Failed to approve mission plan. Verify authorization permissions."
       );
@@ -228,10 +236,16 @@ export default function MissionDetail() {
               <strong>{missionPlan.max_parallel_tasks} workers</strong>
             </div>
 
-            {planRecord?.approved_at && (
+            {(planRecord?.approved_at || missionPlan?.approved_at || optimisticApproved) && (
               <div className={styles.metaItem} style={{ color: "#16a34a" }}>
                 <span>Approved:</span>
-                <strong>{new Date(planRecord.approved_at).toLocaleString()}</strong>
+                <strong>
+                  {planRecord?.approved_at
+                    ? new Date(planRecord.approved_at).toLocaleString()
+                    : missionPlan?.approved_at
+                    ? new Date(missionPlan.approved_at).toLocaleString()
+                    : new Date().toLocaleString()}
+                </strong>
               </div>
             )}
           </div>

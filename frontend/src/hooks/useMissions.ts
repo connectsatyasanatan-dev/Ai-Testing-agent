@@ -40,9 +40,16 @@ export function useApproveMission(missionId?: string) {
   const queryClient = useQueryClient();
   return useMutation<{ mission_id: string; status: string; approved_at: string }, Error, string | undefined>({
     mutationFn: (comment) => approveMission(missionId!, comment),
-    onSuccess: () => {
+    onSuccess: (data) => {
       void queryClient.invalidateQueries({ queryKey: ["missions", missionId, "dag"] });
+      void queryClient.invalidateQueries({ queryKey: ["plan", missionId] });
       void queryClient.invalidateQueries({ queryKey: ["plans"] });
+      queryClient.setQueryData(["missions", missionId, "dag"], (old: any) =>
+        old ? { ...old, status: "approved", approved_at: data.approved_at } : old
+      );
+      queryClient.setQueryData(["plan", missionId], (old: any) =>
+        old ? { ...old, status: "approved", approved_at: data.approved_at } : old
+      );
     },
   });
 }

@@ -103,6 +103,20 @@
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
+.select {
+  color-scheme: dark;
+}
+
+.select option {
+  background-color: #151922;
+  color: #f1f5f9;
+}
+
+.select option:checked {
+  background-color: #2563eb;
+  color: #ffffff;
+}
+
 .select:focus, .input:focus {
   border-color: var(--color-border-focus);
   box-shadow: 0 0 0 2px rgba(51, 154, 240, 0.2);

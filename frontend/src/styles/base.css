@@ -155,7 +155,19 @@ select {
   font-size: var(--text-sm);
   padding: var(--space-2) var(--space-3);
   width: 100%;
+  color-scheme: dark;
   transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+select option,
+select optgroup {
+  background-color: #151922;
+  color: #f1f5f9;
+}
+
+select option:checked {
+  background-color: #2563eb;
+  color: #ffffff;
 }
 
 input:focus-visible,

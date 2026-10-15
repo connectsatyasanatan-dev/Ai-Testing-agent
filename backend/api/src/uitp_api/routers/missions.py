@@ -127,6 +127,10 @@ async def get_mission_dag(
         description=plan.description,
         tasks=parsed_tasks,
         requires_approval=plan.requires_approval,
+        status=plan.status,
+        version=plan.version,
+        approved_at=plan.approved_at,
+        approved_by=plan.approved_by,
     )
 
 

@@ -223,6 +223,17 @@
 
 .select {
   cursor: pointer;
+  color-scheme: dark;
+}
+
+.select option {
+  background-color: #0b0f17;
+  color: #f1f5f9;
+}
+
+.select option:checked {
+  background-color: #2563eb;
+  color: #ffffff;
 }
 
 .input:focus,

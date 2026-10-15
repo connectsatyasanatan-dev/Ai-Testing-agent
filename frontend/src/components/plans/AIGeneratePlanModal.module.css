@@ -168,6 +168,20 @@
   box-shadow: 0 0 0 3px rgba(51, 154, 240, 0.15);
 }
 
+.select {
+  color-scheme: dark;
+}
+
+.select option {
+  background-color: #1e293b;
+  color: #f8fafc;
+}
+
+.select option:checked {
+  background-color: #2563eb;
+  color: #ffffff;
+}
+
 .textarea {
   resize: vertical;
   min-height: 90px;

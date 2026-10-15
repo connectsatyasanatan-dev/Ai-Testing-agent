@@ -264,6 +264,20 @@
   transition: border-color var(--transition-fast);
 }
 
+.select {
+  color-scheme: dark;
+}
+
+.select option {
+  background-color: #151922;
+  color: #f1f5f9;
+}
+
+.select option:checked {
+  background-color: #2563eb;
+  color: #ffffff;
+}
+
 .input:focus, .select:focus {
   border-color: var(--color-accent);
 }

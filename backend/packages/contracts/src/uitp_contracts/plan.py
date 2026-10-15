@@ -437,6 +437,10 @@ class MissionDAGPlan(BaseModel):
     max_parallel_tasks: int = Field(default=4, ge=1, le=10)
     metadata: dict[str, Any] = Field(default_factory=dict)
     requires_approval: bool = True
+    status: str = "draft"
+    version: int = 1
+    approved_at: datetime | None = None
+    approved_by: str | None = None
 
 
 class MultiAgentMissionRequest(BaseModel):
